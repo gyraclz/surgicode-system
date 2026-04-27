@@ -274,9 +274,10 @@ function WarehousePage() {
   };
 
   // ── Formatters ──────────────────────────────────────────────────────────
+  
   const formatDate = (d: string) =>
     new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const formatDateTime = (d: string) =>
+  const _formatDateTime = (d: string) =>
     new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const isFilterActive = sortKey !== 'date_created' || sortDir !== 'desc' || hideInactive;
