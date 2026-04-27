@@ -1265,7 +1265,7 @@ export default function ViewStockPage() {
                   </>
                 )}
 
-                {/* For OUT/TRANSFER: Show batch selection */}
+                {/* For OUT/TRANSFER: Show batch selection with tray details */}
                 {(transactionMode === 'OUT' || transactionMode === 'TRANSFER') && selectedProductId && selectedProductStock.length > 0 && (
                   <div className="form-group">
                     <label>Select Batch (FEFO) <span className="required">*</span></label>
@@ -1276,7 +1276,7 @@ export default function ViewStockPage() {
                       <option value="">— Choose Batch —</option>
                       {selectedProductStock.map(batch => (
                         <option key={batch.stock_id} value={batch.stock_id}>
-                          Stock #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost}
+                          #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost} | {batch.location?.warehouse_name} {batch.location?.tray ? `Tray: ${batch.location.tray}` : ''}
                         </option>
                       ))}
                     </select>
@@ -1361,19 +1361,23 @@ export default function ViewStockPage() {
                       <option value="">— Select Location —</option>
                       {locations.map(l => (
                         <option key={l.location_id} value={l.location_id}>
-                          {l.warehouse_name}{l.floor ? ` › Floor ${l.floor}` : ''}{l.shelf ? ` › Shelf ${l.shelf}` : ''}
+                          {l.warehouse_name}{l.floor ? ` | Floor ${l.floor}` : ''}{l.shelf ? ` | Shelf ${l.shelf}` : ''}{l.tray ? ` | Tray ${l.tray}` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
                 {transactionMode === 'TRANSFER' && (
-                  <div className="form-row-2">
+                  <>
                     <div className="form-group">
                       <label>From Location <span className="required">*</span></label>
                       <select value={sourceLocationId} onChange={e => setSourceLocationId(e.target.value)}>
                         <option value="">— Source —</option>
-                        {locations.map(l => <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>)}
+                        {locations.map(l => (
+                          <option key={l.location_id} value={l.location_id}>
+                            {l.warehouse_name}{l.floor ? ` | Floor ${l.floor}` : ''}{l.shelf ? ` | Shelf ${l.shelf}` : ''}{l.tray ? ` | Tray ${l.tray}` : ''}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="form-group">
@@ -1381,11 +1385,13 @@ export default function ViewStockPage() {
                       <select value={targetLocationId} onChange={e => setTargetLocationId(e.target.value)}>
                         <option value="">— Destination —</option>
                         {locations.filter(l => l.location_id !== Number(sourceLocationId)).map(l => (
-                          <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>
+                          <option key={l.location_id} value={l.location_id}>
+                            {l.warehouse_name}{l.floor ? ` | Floor ${l.floor}` : ''}{l.shelf ? ` | Shelf ${l.shelf}` : ''}{l.tray ? ` | Tray ${l.tray}` : ''}
+                          </option>
                         ))}
                       </select>
                     </div>
-                  </div>
+                  </>
                 )}
                 <div className="form-row-2">
                   <div className="form-group">
@@ -1510,7 +1516,7 @@ export default function ViewStockPage() {
                       <option value="">— Choose Batch —</option>
                       {invoiceSelectedProductStock.map(batch => (
                         <option key={batch.stock_id} value={batch.stock_id}>
-                          Stock #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost}
+                          #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost} | {batch.location?.warehouse_name} {batch.location?.tray ? `Tray: ${batch.location.tray}` : ''}
                         </option>
                       ))}
                     </select>
@@ -1694,7 +1700,6 @@ export default function ViewStockPage() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
             Create Invoice
           </button>
-          
           <button className="wh-add-btn" onClick={fetchAll}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
             Refresh
