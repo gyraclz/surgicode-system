@@ -1,0 +1,49 @@
+.dashboard-header {
+    /* 1. Make the header a flex container */
+  display: flex;
+
+  /* 2. Vertically align items in the center */
+  align-items: center;
+
+  /* 3. Push the first item (nav) to the left and the last item (profile) to the right */
+  justify-content: space-between;
+
+  /* Optional: Add spacing/padding to the header */
+  padding: 10px 20px; /* Adjust as needed */
+  background-color: white; /* Match your screenshot */
+  border-bottom: 1px solid #eee; /* Optional separator */
+  }
+  
+  .dashboard-header button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    transition: 0.2s ease;
+  }
+  
+  .dashboard-header button:hover {
+    background: #f5f5f5;
+  }
+  
+  .dashboard-header button.active {
+    background: #0066ff;
+    color: white;
+    font-weight: bold;
+  }
+
+  .profile {
+    display: flex;
+    align-items: center;
+    gap: 10px; 
+  }
+  
+  .profile img {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+  }

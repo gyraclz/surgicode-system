@@ -1,0 +1,278 @@
+/* Reuse base styles from App.css */
+@import './App.css';
+
+/* ── FP MAIN CONTAINER ── */
+.fp-main-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+  padding: 80px 16px 40px;
+}
+
+/* ── FP CARD ── */
+.fp-card {
+  background-color: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  padding: clamp(28px, 6vw, 48px);
+  width: clamp(300px, 90vw, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.fp-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 28px 55px rgba(0, 0, 0, 0.45);
+}
+
+/* ── HEADER ── */
+.fp-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.fp-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: rgba(11, 75, 107, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.fp-icon svg {
+  width: 26px;
+  height: 26px;
+  stroke: white;
+}
+
+.fp-title {
+  font-size: clamp(1.2rem, 4vw, 1.5rem);
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+}
+
+.fp-subtitle {
+  font-size: clamp(0.8rem, 2.5vw, 0.9rem);
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── FORM ── */
+.fp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+/* ── INPUT GROUP (reused from App.css) ── */
+.fp-form .input-group {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fp-form .input-group:focus-within {
+  border-color: #0b4b6b;
+  box-shadow: 0 0 0 3px rgba(11, 75, 107, 0.2);
+  background-color: #ffffff;
+}
+
+.fp-form .input-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  color: #0b4b6b;
+  flex-shrink: 0;
+}
+
+.fp-form .input-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fp-form .input-group input {
+  flex: 1;
+  height: 48px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: clamp(0.85rem, 2.5vw, 0.95rem);
+  color: #1B3C53;
+  padding: 0 4px;
+}
+
+.fp-form .input-group input::placeholder {
+  color: #8aa5b5;
+}
+
+/* ── BUTTON ── */
+.fp-btn {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0b4b6b, #1a6f9a);
+  color: white;
+  font-weight: 700;
+  font-size: clamp(0.9rem, 2.5vw, 1rem);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.15s, box-shadow 0.3s;
+  box-shadow: 0 4px 15px rgba(11, 75, 107, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+}
+
+.fp-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #083a53, #145a7d);
+  box-shadow: 0 6px 20px rgba(11, 75, 107, 0.55);
+  transform: translateY(-1px);
+}
+
+.fp-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(11, 75, 107, 0.3);
+}
+
+.fp-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ── SPINNER ── */
+.fp-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── ERROR ── */
+.fp-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(220, 53, 69, 0.15);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #ffe0e0;
+  font-size: 0.85rem;
+}
+
+/* ── SUCCESS ── */
+.fp-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.fp-success-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: rgba(25, 135, 84, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fp-success-icon svg {
+  width: 28px;
+  height: 28px;
+  stroke: white;
+}
+
+.fp-success-text {
+  color: #ffffff;
+  font-size: clamp(0.9rem, 2.5vw, 1rem);
+}
+
+.fp-success-text strong {
+  color: #cce4f7;
+}
+
+.fp-success-sub {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.85rem;
+  margin-top: -4px;
+}
+
+/* ── BACK LINK ── */
+.fp-back-link {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: clamp(0.8rem, 2vw, 0.88rem);
+  text-decoration: none;
+  transition: color 0.2s;
+  margin-top: 4px;
+}
+
+.fp-back-link:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 480px) {
+  .fp-main-container {
+    padding: 70px 12px 30px;
+  }
+
+  .fp-card {
+    width: 92vw;
+    padding: 24px 18px;
+    gap: 18px;
+  }
+
+  .fp-icon {
+    width: 48px;
+    height: 48px;
+  }
+
+  .fp-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+@media (max-width: 360px) {
+  .fp-card {
+    width: 96vw;
+    padding: 20px 14px;
+  }
+}

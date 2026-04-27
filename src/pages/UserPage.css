@@ -1,0 +1,254 @@
+@import './ProductPage.css';
+
+/* ── USER-SPECIFIC ICON BUTTON STATES ── */
+.icon-btn.deactivate:hover { background: #fee2e2; color: #dc2626; }
+.icon-btn.activate:hover   { background: #dcfce7; color: #16a34a; }
+
+@import './ProductPage.css';
+
+/* ─────────────────────────────────────────────
+   BASE LAYOUT
+───────────────────────────────────────────── */
+.product-page {
+  padding: 8px 12px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ─────────────────────────────────────────────
+   HEADER
+───────────────────────────────────────────── */
+.product-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0 20px;
+}
+
+.product-title {
+  font-size: clamp(1.2rem, 4vw, 1.7rem);
+  font-weight: 700;
+  color: #1B3C53;
+}
+
+.product-subtitle {
+  font-size: 0.85rem;
+  color: #7a8fa0;
+}
+
+/* ─────────────────────────────────────────────
+   FILTERS
+───────────────────────────────────────────── */
+.product-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.product-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+}
+
+.product-search {
+  width: 100%;
+  padding: 10px 12px 10px 36px;
+  border-radius: 10px;
+}
+
+/* ─────────────────────────────────────────────
+   TABLE (FIXED FOR MOBILE)
+───────────────────────────────────────────── */
+.product-table-wrap {
+  width: 100%;
+  overflow: hidden;
+}
+
+.product-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* IMPORTANT FIX */
+.product-table {
+  width: 100%;
+  min-width: 900px; /* prevents crushing */
+  border-collapse: collapse;
+}
+
+/* Sticky header */
+.product-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f4f7fa;
+  z-index: 2;
+}
+
+/* Prevent text overflow */
+.product-table td {
+  padding: 11px;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.td-mono {
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────
+   ACTION BUTTONS FIX
+───────────────────────────────────────────── */
+
+
+/* ─────────────────────────────────────────────
+   STATS
+───────────────────────────────────────────── */
+.product-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stat-chip {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* ─────────────────────────────────────────────
+   FORM
+───────────────────────────────────────────── */
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.form-input,
+.form-select {
+  width: 100%;
+}
+
+/* ─────────────────────────────────────────────
+   MODAL
+───────────────────────────────────────────── */
+.modal-overlay {
+  padding: 16px;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 540px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ─────────────────────────────────────────────
+   PAGINATION
+───────────────────────────────────────────── */
+.product-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* ─────────────────────────────────────────────
+   RESPONSIVE BREAKPOINTS
+───────────────────────────────────────────── */
+
+/* TABLET */
+@media (max-width: 1024px) {
+  .form-row {
+    grid-template-columns: 1fr; /* stack earlier */
+  }
+}
+
+/* MOBILE */
+@media (max-width: 768px) {
+
+  .product-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .product-filter-actions {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+ .product-action-btn {
+    width: 100%;
+    justify-content: center;
+  } 
+
+  .stat-chip {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .product-pagination {
+    flex-direction: column;
+  }
+}
+
+/* SMALL MOBILE */
+@media (max-width: 480px) {
+
+  .product-header {
+    flex-direction: column;
+  }
+
+  .product-refresh-btn {
+    width: 100%;
+  }
+
+  .product-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Modal behaves like bottom sheet */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal-card {
+    border-radius: 16px 16px 0 0;
+    max-width: 100%;
+  }
+}
+
+/* EXTRA SMALL */
+@media (max-width: 360px) {
+  .product-title {
+    font-size: 1.1rem;
+  }
+
+  .stat-chip {
+    flex: 1 1 100%;
+  }
+}
+
+/* ─────────────────────────────────────────────
+   TOUCH IMPROVEMENTS
+───────────────────────────────────────────── */
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  touch-action: manipulation;
+}

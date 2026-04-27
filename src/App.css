@@ -1,0 +1,424 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.SurgiCode {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  background-image: url("/bg.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.SurgiCode::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(100, 153, 201, 0.7);
+  z-index: 0;
+}
+
+/* ── NAVBAR ── */
+.topnavbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: 10px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #ffffff;
+  border-radius: 0 0 15px 15px;
+  z-index: 10;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.logo1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.top-logo-img {
+  background-image: url("/top-logo.png");
+  background-size: cover;
+  background-position: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid #3d3f3f;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  color: #1B3C53;
+  font-size: clamp(1rem, 2.5vw, 1.3rem);
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.date-n-time {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  color: #1B3C53;
+  font-weight: 500;
+  font-size: clamp(0.7rem, 2vw, 1rem);
+  white-space: nowrap;
+}
+
+/* ── MAIN CONTAINER ── */
+.main-container {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(30px, 8vw, 150px);
+  margin-top: 70px;
+  padding: 20px 16px 40px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+/* ── LOGIN CARD ── */
+.login {
+  background-color: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  padding: clamp(24px, 5vw, 40px);
+  border-radius: 24px;
+  text-align: center;
+  color: white;
+  width: clamp(300px, 90vw, 420px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.login:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 28px 55px rgba(0, 0, 0, 0.45);
+}
+
+/* ── LOGIN HEADER IMAGE ── */
+.login-header-img {
+  background-image: url("/login-logo.png");
+  background-size: cover;
+  background-position: center;
+  background-color: rgba(10, 45, 68, 0.9);
+  border-radius: 12px;
+  width: 100%;
+  height: clamp(70px, 15vw, 100px);
+}
+
+/* ── LOGIN FORM ── */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+/* ── INPUT GROUP ── */
+.input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  background-color: rgba(255, 255, 255, 0.92);
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.input-group:focus-within {
+  border-color: #0b4b6b;
+  box-shadow: 0 0 0 3px rgba(11, 75, 107, 0.2);
+  background-color: #ffffff;
+}
+
+.input-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  color: #0b4b6b;
+  flex-shrink: 0;
+}
+
+.input-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.input-group input {
+  flex: 1;
+  height: 48px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: clamp(0.85rem, 2.5vw, 0.95rem);
+  color: #1B3C53;
+  padding: 0 4px;
+}
+
+.input-group input::placeholder {
+  color: #8aa5b5;
+  font-size: clamp(0.8rem, 2vw, 0.9rem);
+}
+
+.toggle-password {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  color: #7a9db0;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle-password:hover {
+  color: #0b4b6b;
+}
+
+.toggle-password svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── FORGOT PASSWORD ── */
+.forgot-password {
+  text-align: right;
+  margin-top: -4px;
+}
+
+.forgot-password a {
+  font-size: clamp(0.75rem, 2vw, 0.85rem);
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.forgot-password a:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* ── LOGIN BUTTON ── */
+.login-btn {
+  width: 100%;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #0b4b6b, #1a6f9a);
+  color: white;
+  font-weight: 700;
+  font-size: clamp(0.9rem, 2.5vw, 1rem);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.15s, box-shadow 0.3s;
+  box-shadow: 0 4px 15px rgba(11, 75, 107, 0.4);
+  margin-top: 4px;
+}
+
+.login-btn:hover {
+  background: linear-gradient(135deg, #083a53, #145a7d);
+  box-shadow: 0 6px 20px rgba(11, 75, 107, 0.55);
+  transform: translateY(-1px);
+}
+
+.login-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(11, 75, 107, 0.3);
+}
+
+/* ── LOGO ON THE RIGHT ── */
+.surgicode-logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+.surgicode-logo-img {
+  background-image: url("/surgicode-logo.png");
+}
+
+.surgicode-logo-img {
+  width: clamp(200px, 35vw, 500px);
+  height: clamp(200px, 35vw, 500px);
+  border-radius: 50%;
+  border: 6px solid #3d3f3f;
+  object-fit: cover;
+  display: block;
+}
+
+/* ── FORGOT PASSWORD PAGE ── */
+.forgot-main-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 20px;
+  padding: 20px;
+}
+
+.forgot-container {
+  width: clamp(280px, 90vw, 420px);
+}
+
+.forgot-container .login-header-img.fp-logo {
+  background-image: url("/fp-logo.png");
+  width: 100%;
+  height: 90px;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  margin: 0 auto 30px auto;
+}
+
+.forgot-container h2 {
+  margin-bottom: 10px;
+  color: #0b4b6b;
+}
+
+.forgot-container p {
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.forgot-back {
+  margin-top: 15px;
+}
+
+.forgot-back a,
+.forgot-back-left a {
+  color: #0b4b6b;
+  text-decoration: none;
+  font-weight: bold;
+}
+
+.forgot-back a:hover,
+.forgot-back-left a:hover {
+  text-decoration: underline;
+}
+
+.forgot-back-left {
+  margin-top: 16px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.login-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(220, 53, 69, 0.15);
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #ffe0e0;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+.login-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   RESPONSIVE BREAKPOINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+@media (max-width: 768px) {
+  .main-container {
+    flex-direction: column;
+    gap: 30px;
+    margin-top: 80px;
+  }
+
+  .surgicode-logo-img {
+    width: clamp(160px, 55vw, 280px);
+    height: clamp(160px, 55vw, 280px);
+  }
+
+  .login {
+    width: clamp(280px, 85vw, 400px);
+  }
+}
+
+@media (max-width: 480px) {
+  .topnavbar {
+    padding: 8px 16px;
+    border-radius: 0 0 10px 10px;
+  }
+
+  .top-logo-img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .main-container {
+    margin-top: 70px;
+    padding: 16px 12px 30px;
+    gap: 24px;
+  }
+
+  .login {
+    width: 92vw;
+    padding: 20px 16px;
+    gap: 14px;
+  }
+
+  .login-header-img {
+    height: 65px;
+  }
+
+  .surgicode-logo-img {
+    width: 180px;
+    height: 180px;
+    border-width: 3px;
+  }
+}
+
+@media (max-width: 360px) {
+  .login {
+    width: 96vw;
+    padding: 16px 12px;
+  }
+
+  .surgicode-logo-img {
+    width: 140px;
+    height: 140px;
+  }
+
+  .date-n-time {
+    display: none;
+  }
+}

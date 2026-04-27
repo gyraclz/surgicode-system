@@ -1,0 +1,113 @@
+/* ========================= */
+/* LOGIN PAGE DESIGN         */
+/* ========================= */
+
+.login-container {
+    height: 100vh;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #0066ff, #3b3b98);
+  }
+  
+  .login-box {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    width: 380px;
+    padding: 32px;
+    border-radius: 18px;
+    color: white;
+    text-align: center;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    animation: fadeIn 0.4s ease;
+  }
+  
+  .login-box h2 {
+    margin-bottom: 8px;
+    font-size: 28px;
+    font-weight: 600;
+  }
+  
+  .subtitle {
+    margin-bottom: 22px;
+    opacity: 0.75;
+    font-size: 15px;
+  }
+  
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    margin-bottom: 15px;
+  }
+  
+  .input-group label {
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  
+  .login-box input {
+    padding: 10px;
+    width: 100%;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+    font-size: 14px;
+  }
+  
+  .login-box input::placeholder {
+    color: #999;
+  }
+  
+  .btn-login {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    background: #ffffff;
+    color: #3b3b98;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: 0.3s ease;
+  }
+  
+  .btn-login:hover {
+    background: #ececec;
+  }
+
+  .password-wrapper {
+    position: relative;
+    width: 100%;
+  }
+  
+  .password-wrapper input {
+    width: 100%;
+    padding-right: 40px;  /* add spacing for icon */
+  }
+  
+  .toggle-password {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    font-size: 18px;
+    color: #333;
+  }
+  
+  
+  /* Fade-in animation */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
