@@ -50,6 +50,7 @@ interface TransactionItem {
   expiration_date: string | null;
   availableQuantity: number;
   location_label?: string;
+  isNewStock?: boolean;
 }
 
 interface Relation {
@@ -184,7 +185,9 @@ export default function ViewStockPage() {
 
   // Add item sub-modal (for transactions)
   const [showAddItem, setShowAddItem] = useState(false);
-  const [addItemStock, setAddItemStock] = useState<StockRow | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [selectedProductStock, setSelectedProductStock] = useState<StockRow[]>([]);
+  const [selectedBatchId, setSelectedBatchId] = useState('');
   const [addItemQty, setAddItemQty] = useState('');
   const [addItemPrice, setAddItemPrice] = useState('');
   const [addItemExpiry, setAddItemExpiry] = useState('');
@@ -200,7 +203,9 @@ export default function ViewStockPage() {
 
   // Add to invoice sub-modal
   const [showAddInvoiceItem, setShowAddInvoiceItem] = useState(false);
-  const [addInvoiceStock, setAddInvoiceStock] = useState<StockRow | null>(null);
+  const [invoiceSelectedProductId, setInvoiceSelectedProductId] = useState('');
+  const [invoiceSelectedProductStock, setInvoiceSelectedProductStock] = useState<StockRow[]>([]);
+  const [invoiceSelectedBatchId, setInvoiceSelectedBatchId] = useState('');
   const [addInvoiceQty, setAddInvoiceQty] = useState('');
   const [addInvoicePrice, setAddInvoicePrice] = useState('');
 
@@ -231,121 +236,110 @@ export default function ViewStockPage() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
- // ── Load permissions from AuthContext user ────────────────────────────────────
-const loadUserPermissions = async (savedUser: any) => {
-  const { data, error } = await supabase
-    .from('users')
-    .select(`
-      user_id, 
-      full_name, 
-      username, 
-      role_id, 
-      assigned_type, 
-      assigned_location_id,
-      role:role_id (role_name)
-    `)
-    .eq('user_id', savedUser.user_id)
-    .single();
+  // ── Load permissions from AuthContext user ────────────────────────────────────
+  const loadUserPermissions = async (savedUser: any) => {
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        user_id, 
+        full_name, 
+        username, 
+        role_id, 
+        assigned_type, 
+        assigned_location_id,
+        role:role_id (role_name)
+      `)
+      .eq('user_id', savedUser.user_id)
+      .single();
 
-  if (error || !data) {
-    console.error('Error loading user permissions:', error);
-    return;
-  }
-
-  // Extract role name properly with type-safe approach
-  let roleName = '';
-  
-  // Handle different possible structures of the role data
-  if (data.role) {
-    if (Array.isArray(data.role) && data.role.length > 0) {
-      // Handle array response
-      const roleData = data.role[0] as any;
-      roleName = roleData?.role_name || '';
-    } else if (typeof data.role === 'object' && !Array.isArray(data.role)) {
-      // Handle object response
-      const roleData = data.role as any;
-      roleName = roleData?.role_name || '';
+    if (error || !data) {
+      console.error('Error loading user permissions:', error);
+      return;
     }
-  }
 
-  const user: CurrentUser = {
-    user_id: data.user_id,
-    full_name: data.full_name,
-    username: data.username,
-    role_id: data.role_id,
-    assigned_type: data.assigned_type,
-    assigned_location_id: data.assigned_location_id,
-    role_name: roleName,
+    let roleName = '';
+    
+    if (data.role) {
+      if (Array.isArray(data.role) && data.role.length > 0) {
+        const roleData = data.role[0] as any;
+        roleName = roleData?.role_name || '';
+      } else if (typeof data.role === 'object' && !Array.isArray(data.role)) {
+        const roleData = data.role as any;
+        roleName = roleData?.role_name || '';
+      }
+    }
+
+    const user: CurrentUser = {
+      user_id: data.user_id,
+      full_name: data.full_name,
+      username: data.username,
+      role_id: data.role_id,
+      assigned_type: data.assigned_type,
+      assigned_location_id: data.assigned_location_id,
+      role_name: roleName,
+    };
+    setCurrentUser(user);
+
+    const assignedType = data.assigned_type;
+    const assignedLocationId = data.assigned_location_id;
+
+    if (roleName === 'Admin') {
+      setPermissions({ 
+        canViewAll: true, 
+        allowedTypes: ['S1', 'Bidding'], 
+        allowedLocationId: null, 
+        canOnlySalesOut: false, 
+        canDoStockIn: true, 
+        canDoTransfer: true, 
+        canDoReturn: true 
+      });
+    } 
+    else if (roleName === 'Manager') {
+      setPermissions({ 
+        canViewAll: false, 
+        allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
+        allowedLocationId: null, 
+        canOnlySalesOut: false, 
+        canDoStockIn: true, 
+        canDoTransfer: true, 
+        canDoReturn: true 
+      });
+    } 
+    else if (roleName === 'Warehouse') {
+      setPermissions({ 
+        canViewAll: false, 
+        allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
+        allowedLocationId: assignedLocationId, 
+        canOnlySalesOut: false, 
+        canDoStockIn: true, 
+        canDoTransfer: true, 
+        canDoReturn: true 
+      });
+    } 
+    else if (roleName === 'Sales') {
+      setPermissions({ 
+        canViewAll: false, 
+        allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
+        allowedLocationId: null, 
+        canOnlySalesOut: true, 
+        canDoStockIn: false, 
+        canDoTransfer: false, 
+        canDoReturn: true 
+      });
+    } 
+    else {
+      setPermissions({ 
+        canViewAll: false, 
+        allowedTypes: [], 
+        allowedLocationId: null, 
+        canOnlySalesOut: false, 
+        canDoStockIn: false, 
+        canDoTransfer: false, 
+        canDoReturn: false 
+      });
+    }
   };
-  setCurrentUser(user);
 
-  const assignedType = data.assigned_type;
-  const assignedLocationId = data.assigned_location_id;
-
-  // Set permissions based on role
-  if (roleName === 'Admin') {
-    // Admin can view everything
-    setPermissions({ 
-      canViewAll: true, 
-      allowedTypes: ['S1', 'Bidding'], 
-      allowedLocationId: null, 
-      canOnlySalesOut: false, 
-      canDoStockIn: true, 
-      canDoTransfer: true, 
-      canDoReturn: true 
-    });
-  } 
-  else if (roleName === 'Manager') {
-    // Manager can access either S1 or Bidding (based on assigned_type)
-    // Can access all warehouses for that type
-    setPermissions({ 
-      canViewAll: false, 
-      allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
-      allowedLocationId: null, 
-      canOnlySalesOut: false, 
-      canDoStockIn: true, 
-      canDoTransfer: true, 
-      canDoReturn: true 
-    });
-  } 
-  else if (roleName === 'Warehouse') {
-    // Warehouse staff: assigned_type AND assigned_location_id
-    // Can only access one warehouse and one type
-    setPermissions({ 
-      canViewAll: false, 
-      allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
-      allowedLocationId: assignedLocationId, 
-      canOnlySalesOut: false, 
-      canDoStockIn: true, 
-      canDoTransfer: true, 
-      canDoReturn: true 
-    });
-  } 
-  else if (roleName === 'Sales') {
-    // Sales: can view all warehouses but only one type, and only do OUT/RETURN
-    setPermissions({ 
-      canViewAll: false, 
-      allowedTypes: assignedType ? [assignedType] : ['S1', 'Bidding'], 
-      allowedLocationId: null, 
-      canOnlySalesOut: true, 
-      canDoStockIn: false, 
-      canDoTransfer: false, 
-      canDoReturn: true 
-    });
-  } 
-  else {
-    // Default: no permissions
-    setPermissions({ 
-      canViewAll: false, 
-      allowedTypes: [], 
-      allowedLocationId: null, 
-      canOnlySalesOut: false, 
-      canDoStockIn: false, 
-      canDoTransfer: false, 
-      canDoReturn: false 
-    });
-  }
-};
   // ── Fetch ─────────────────────────────────────────────────────────────────────
   const fetchAll = async () => {
     setLoading(true);
@@ -358,21 +352,15 @@ const loadUserPermissions = async (savedUser: any) => {
         location:location_id ( location_id, warehouse_name, floor, shelf, tray, status )
       `);
 
-    // Apply role-based filters
     if (!permissions.canViewAll) {
-      // Filter by product type (S1 or Bidding)
       if (permissions.allowedTypes.length > 0 && permissions.allowedTypes.length < 2) {
-        // If specific type is assigned, filter by it
         query = query.in('product_type', permissions.allowedTypes);
       }
-      
-      // Filter by assigned location (for Warehouse role)
       if (permissions.allowedLocationId) {
         query = query.eq('location_id', permissions.allowedLocationId);
       }
     }
 
-    // Only show active products
     query = query.eq('product.status', 'Active');
     
     const { data, error } = await query.order('date_created', { ascending: false });
@@ -412,7 +400,6 @@ const loadUserPermissions = async (savedUser: any) => {
       .eq('status', 'Active')
       .order('warehouse_name');
     
-    // For Warehouse role, only show their assigned location
     if (permissions.allowedLocationId && !permissions.canViewAll) {
       query = query.eq('location_id', permissions.allowedLocationId);
     }
@@ -433,7 +420,6 @@ const loadUserPermissions = async (savedUser: any) => {
       `)
       .eq('product_id', productId);
     
-    // Apply role-based filters for batches too
     if (!permissions.canViewAll) {
       if (permissions.allowedTypes.length > 0 && permissions.allowedTypes.length < 2) {
         query = query.in('product_type', permissions.allowedTypes);
@@ -536,24 +522,8 @@ const loadUserPermissions = async (savedUser: any) => {
     fetchProductBatches(s.product_id);
   };
 
-  // ── FEFO item builder ─────────────────────────────────────────────────────────
-  const buildFEFOItems = (productId: number, totalQtyNeeded: number, price: number, filterBySrcLocation?: number): TransactionItem[] => {
-    let batches = stocks.filter(s => s.product_id === productId && s.quantity > 0 && s.status !== 'Out of Stock').sort(fefoSort);
-    if (filterBySrcLocation) batches = batches.filter(s => s.location_id === filterBySrcLocation);
-    const items: TransactionItem[] = [];
-    let remaining = totalQtyNeeded;
-    for (const b of batches) {
-      if (remaining <= 0) break;
-      const take = Math.min(remaining, b.quantity);
-      items.push({ stock_id: b.stock_id, product_id: b.product_id, product_name: b.product?.product_name ?? '', barcode: b.product?.barcode ?? null, expiration_date: b.expiration_date, availableQuantity: b.quantity, quantity: take, price, total: take * price, location_label: locationLabel(b.location) });
-      remaining -= take;
-    }
-    return items;
-  };
-
   // ── Transaction ───────────────────────────────────────────────────────────────
   const openTransaction = (mode: 'IN' | 'OUT' | 'TRANSFER' | 'RETURN') => {
-    // Check if user has permission for this transaction type
     if (mode === 'IN' && !permissions.canDoStockIn) {
       showGlobalSuccess('You do not have permission to do Stock In');
       return;
@@ -561,13 +531,6 @@ const loadUserPermissions = async (savedUser: any) => {
     if (mode === 'TRANSFER' && !permissions.canDoTransfer) {
       showGlobalSuccess('You do not have permission to do Transfer');
       return;
-    }
-    if ((mode === 'OUT' || mode === 'RETURN') && permissions.canOnlySalesOut && !permissions.canDoReturn && mode === 'RETURN') {
-      // Sales can do OUT and RETURN
-      if (mode === 'RETURN' && !permissions.canDoReturn) {
-        showGlobalSuccess('You do not have permission to do Return');
-        return;
-      }
     }
     
     setTransactionMode(mode);
@@ -581,34 +544,173 @@ const loadUserPermissions = async (savedUser: any) => {
     setTransactionSuccess(null);
   };
 
-  const openAddItemModal = (stock: StockRow) => {
-    setAddItemStock(stock);
+  // Get available batches for a product based on filters
+  const getAvailableBatchesForProduct = (productId: number) => {
+    let batches = stocks.filter(s => s.product_id === productId && s.quantity > 0 && s.status !== 'Out of Stock');
+    
+    // For TRANSFER mode, filter by source location
+    if (transactionMode === 'TRANSFER' && sourceLocationId) {
+      batches = batches.filter(s => s.location_id === Number(sourceLocationId));
+    }
+    
+    return batches.sort(fefoSort);
+  };
+
+  // Handle product selection in transaction modal
+  const handleProductSelect = (productId: string) => {
+    setSelectedProductId(productId);
+    
+    // For Stock In or Return, we don't need to show batches
+    if (transactionMode === 'IN' || transactionMode === 'RETURN') {
+      setSelectedProductStock([]);
+      setSelectedBatchId('');
+      setAddItemQty('');
+      const product = products.find(p => p.product_id === Number(productId));
+      if (product) {
+        setAddItemPrice(''); // Let user enter price
+      }
+      return;
+    }
+    
+    // For OUT and TRANSFER, show available batches
+    const batches = getAvailableBatchesForProduct(Number(productId));
+    setSelectedProductStock(batches);
+    setSelectedBatchId('');
     setAddItemQty('');
-    setAddItemPrice(String(stock.unit_cost ?? ''));
-    setAddItemExpiry('');
-    setShowAddItem(true);
+    const product = products.find(p => p.product_id === Number(productId));
+    if (product) {
+      const defaultPrice = batches.length > 0 ? batches[0].unit_cost : 0;
+      setAddItemPrice(String(defaultPrice));
+    }
+  };
+
+  // Handle batch selection
+  const handleBatchSelect = (batchId: string) => {
+    setSelectedBatchId(batchId);
+    const batch = selectedProductStock.find(b => b.stock_id === Number(batchId));
+    if (batch) {
+      setAddItemPrice(String(batch.unit_cost));
+    }
   };
 
   const confirmAddItem = () => {
-    if (!addItemStock) return;
-    const qty = Number(addItemQty);
-    if (!qty || qty <= 0) { setTransactionError('Enter a valid quantity.'); return; }
-    if ((transactionMode === 'OUT' || transactionMode === 'TRANSFER') && qty > addItemStock.quantity) {
-      setTransactionError(`Not enough stock. Available: ${addItemStock.quantity}`); return;
+    // For Stock In or Return, we don't need an existing batch
+    if (transactionMode === 'IN' || transactionMode === 'RETURN') {
+      if (!selectedProductId) {
+        setTransactionError('Please select a product.');
+        return;
+      }
+      
+      const qty = Number(addItemQty);
+      if (!qty || qty <= 0) { 
+        setTransactionError('Enter a valid quantity.'); 
+        return; 
+      }
+      
+      const price = Number(addItemPrice);
+      if (!price || price <= 0) {
+        setTransactionError('Enter a valid price.');
+        return;
+      }
+      
+      const product = products.find(p => p.product_id === Number(selectedProductId));
+      if (!product) {
+        setTransactionError('Product not found.');
+        return;
+      }
+      
+      // For Stock In, we create a temporary item without a stock_id (will be created in transaction)
+      const tempId = -Date.now(); // Temporary negative ID for new items
+      setTransactionItems(prev => [...prev, { 
+        stock_id: tempId,
+        product_id: product.product_id,
+        product_name: product.product_name, 
+        barcode: product.barcode ?? null, 
+        quantity: qty, 
+        price: price, 
+        total: qty * price, 
+        expiration_date: addItemExpiry || null, 
+        availableQuantity: 999999, // No limit for new stock
+        location_label: 'New Stock',
+        isNewStock: true
+      }]);
+      
+      // Reset form
+      setSelectedProductId('');
+      setAddItemQty('');
+      setAddItemPrice('');
+      setAddItemExpiry('');
+      setShowAddItem(false);
+      setTransactionError(null);
+      return;
     }
-    const price = Number(addItemPrice) || addItemStock.unit_cost;
-    const existing = transactionItems.findIndex(i => i.stock_id === addItemStock.stock_id);
+    
+    // For OUT and TRANSFER, we need an existing batch
+    if (!selectedBatchId) {
+      setTransactionError('Please select a batch.');
+      return;
+    }
+    
+    const batch = selectedProductStock.find(b => b.stock_id === Number(selectedBatchId));
+    if (!batch) {
+      setTransactionError('Batch not found.');
+      return;
+    }
+    
+    const qty = Number(addItemQty);
+    if (!qty || qty <= 0) { 
+      setTransactionError('Enter a valid quantity.'); 
+      return; 
+    }
+    
+    if (qty > batch.quantity) {
+      setTransactionError(`Not enough stock. Available: ${batch.quantity}`); 
+      return; 
+    }
+    
+    const price = Number(addItemPrice) || batch.unit_cost;
+    const existing = transactionItems.findIndex(i => i.stock_id === batch.stock_id);
+    
     if (existing >= 0) {
       const newQty = transactionItems[existing].quantity + qty;
-      if ((transactionMode === 'OUT' || transactionMode === 'TRANSFER') && newQty > addItemStock.quantity) {
-        setTransactionError(`Total would exceed available stock (${addItemStock.quantity}).`); return;
+      if (newQty > batch.quantity) {
+        setTransactionError(`Total would exceed available stock (${batch.quantity}).`); 
+        return; 
       }
       setTransactionItems(prev => prev.map((i, idx) => idx === existing ? { ...i, quantity: newQty, total: newQty * i.price } : i));
     } else {
-      setTransactionItems(prev => [...prev, { stock_id: addItemStock.stock_id, product_id: addItemStock.product_id, product_name: addItemStock.product?.product_name ?? 'Unknown', barcode: addItemStock.product?.barcode ?? null, quantity: qty, price, total: qty * price, expiration_date: addItemExpiry || null, availableQuantity: addItemStock.quantity }]);
+      setTransactionItems(prev => [...prev, { 
+        stock_id: batch.stock_id, 
+        product_id: batch.product_id, 
+        product_name: batch.product?.product_name ?? 'Unknown', 
+        barcode: batch.product?.barcode ?? null, 
+        quantity: qty, 
+        price, 
+        total: qty * price, 
+        expiration_date: batch.expiration_date, 
+        availableQuantity: batch.quantity,
+        location_label: locationLabel(batch.location),
+        isNewStock: false
+      }]);
     }
+    
+    // Reset form
+    setSelectedProductId('');
+    setSelectedProductStock([]);
+    setSelectedBatchId('');
+    setAddItemQty('');
     setShowAddItem(false);
     setTransactionError(null);
+  };
+
+  const openAddItemModal = () => {
+    setSelectedProductId('');
+    setSelectedProductStock([]);
+    setSelectedBatchId('');
+    setAddItemQty('');
+    setAddItemPrice('');
+    setAddItemExpiry('');
+    setShowAddItem(true);
   };
 
   const submitTransaction = async () => {
@@ -628,17 +730,54 @@ const loadUserPermissions = async (savedUser: any) => {
     let hasError = false;
     for (const item of transactionItems) {
       let stockId = item.stock_id;
-      const originalStock = stocks.find(s => s.stock_id === item.stock_id);
 
       if (transactionMode === 'IN' || transactionMode === 'RETURN') {
-        const { data: ns, error: nsErr } = await supabase.from('stock')
-          .insert([{ product_id: originalStock?.product_id ?? item.product_id, location_id: Number(selectedLocationId), product_type: originalStock?.product_type ?? null, quantity: 0, unit_cost: item.price, expiration_date: item.expiration_date || null, status: 'Available' }])
-          .select('stock_id').single();
-        if (nsErr || !ns) { setTransactionError(`Failed to create stock batch: ${nsErr?.message}`); hasError = true; break; }
-        stockId = ns.stock_id;
-      }
+        // For new items (temp negative ID), create new stock
+        if (item.isNewStock || item.stock_id < 0) {
+          const { data: ns, error: nsErr } = await supabase.from('stock')
+            .insert([{ 
+              product_id: item.product_id, 
+              location_id: Number(selectedLocationId), 
+              product_type: null, 
+              quantity: item.quantity, 
+              unit_cost: item.price, 
+              expiration_date: item.expiration_date || null, 
+              status: 'Available' 
+            }])
+            .select('stock_id').single();
+          if (nsErr || !ns) { 
+            setTransactionError(`Failed to create stock batch: ${nsErr?.message}`); 
+            hasError = true; 
+            break; 
+          }
+          stockId = ns.stock_id;
+        } else {
+          // Update existing stock
+          const { data: ns, error: nsErr } = await supabase.from('stock')
+            .insert([{ 
+              product_id: item.product_id, 
+              location_id: Number(selectedLocationId), 
+              product_type: null, 
+              quantity: 0, 
+              unit_cost: item.price, 
+              expiration_date: item.expiration_date || null, 
+              status: 'Available' 
+            }])
+            .select('stock_id').single();
+          if (nsErr || !ns) { 
+            setTransactionError(`Failed to create stock batch: ${nsErr?.message}`); 
+            hasError = true; 
+            break; 
+          }
+          stockId = ns.stock_id;
+        }
 
-      if (transactionMode === 'TRANSFER') {
+        const movement = 'IN';
+        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: stockId, movement, quantity: item.quantity, price: item.price, total: item.total }]);
+        if (itemErr) { setTransactionError(itemErr.message); hasError = true; break; }
+      } 
+      else if (transactionMode === 'TRANSFER') {
+        const originalStock = stocks.find(s => s.stock_id === item.stock_id);
         const { data: ns, error: nsErr } = await supabase.from('stock')
           .insert([{ product_id: item.product_id, location_id: Number(targetLocationId), product_type: originalStock?.product_type ?? null, quantity: 0, unit_cost: item.price, expiration_date: originalStock?.expiration_date ?? null, status: 'Available' }])
           .select('stock_id').single();
@@ -649,12 +788,12 @@ const loadUserPermissions = async (savedUser: any) => {
 
         const { error: inErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: ns.stock_id, movement: 'IN', quantity: item.quantity, price: item.price, total: item.total }]);
         if (inErr) { setTransactionError(inErr.message); hasError = true; break; }
-        continue;
+      } 
+      else if (transactionMode === 'OUT') {
+        const movement = 'OUT';
+        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: item.stock_id, movement, quantity: item.quantity, price: item.price, total: item.total }]);
+        if (itemErr) { setTransactionError(itemErr.message.includes('Not enough') ? `Not enough stock for ${item.product_name}.` : itemErr.message); hasError = true; break; }
       }
-
-      const movement = transactionMode === 'OUT' ? 'OUT' : 'IN';
-      const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: stockId, movement, quantity: item.quantity, price: item.price, total: item.total }]);
-      if (itemErr) { setTransactionError(itemErr.message.includes('Not enough') ? `Not enough stock for ${item.product_name}.` : itemErr.message); hasError = true; break; }
     }
 
     setTransactionLoading(false);
@@ -675,27 +814,90 @@ const loadUserPermissions = async (savedUser: any) => {
     setInvoiceSuccess(null);
   };
 
-  const openAddInvoiceItem = (stock: StockRow) => {
-    setAddInvoiceStock(stock);
-    setAddInvoiceQty('1');
-    setAddInvoicePrice(String(stock.unit_cost ?? ''));
+  const getInvoiceAvailableBatches = (productId: number) => {
+    return stocks.filter(s => s.product_id === productId && s.quantity > 0 && s.status !== 'Out of Stock').sort(fefoSort);
+  };
+
+  const handleInvoiceProductSelect = (productId: string) => {
+    setInvoiceSelectedProductId(productId);
+    const batches = getInvoiceAvailableBatches(Number(productId));
+    setInvoiceSelectedProductStock(batches);
+    setInvoiceSelectedBatchId('');
+    setAddInvoiceQty('');
+    const product = products.find(p => p.product_id === Number(productId));
+    if (product && batches.length > 0) {
+      setAddInvoicePrice(String(batches[0].unit_cost));
+    }
+  };
+
+  const handleInvoiceBatchSelect = (batchId: string) => {
+    setInvoiceSelectedBatchId(batchId);
+    const batch = invoiceSelectedProductStock.find(b => b.stock_id === Number(batchId));
+    if (batch) {
+      setAddInvoicePrice(String(batch.unit_cost));
+    }
+  };
+
+  const openAddInvoiceItem = () => {
+    setInvoiceSelectedProductId('');
+    setInvoiceSelectedProductStock([]);
+    setInvoiceSelectedBatchId('');
+    setAddInvoiceQty('');
+    setAddInvoicePrice('');
     setShowAddInvoiceItem(true);
   };
 
   const confirmAddInvoiceItem = () => {
-    if (!addInvoiceStock) return;
+    if (!invoiceSelectedBatchId) {
+      setInvoiceError('Please select a batch.');
+      return;
+    }
+    
+    const batch = invoiceSelectedProductStock.find(b => b.stock_id === Number(invoiceSelectedBatchId));
+    if (!batch) {
+      setInvoiceError('Batch not found.');
+      return;
+    }
+    
     const qty = Number(addInvoiceQty);
     const price = Number(addInvoicePrice);
-    if (!qty || qty <= 0) { setInvoiceError('Enter a valid quantity.'); return; }
-    if (qty > addInvoiceStock.quantity) { setInvoiceError(`Not enough stock. Available: ${addInvoiceStock.quantity}`); return; }
-    const existing = invoiceItems.findIndex(i => i.stock_id === addInvoiceStock.stock_id);
+    
+    if (!qty || qty <= 0) { 
+      setInvoiceError('Enter a valid quantity.'); 
+      return; 
+    }
+    if (qty > batch.quantity) { 
+      setInvoiceError(`Not enough stock. Available: ${batch.quantity}`); 
+      return; 
+    }
+    
+    const existing = invoiceItems.findIndex(i => i.stock_id === batch.stock_id);
     if (existing >= 0) {
       const newQty = invoiceItems[existing].quantity + qty;
-      if (newQty > addInvoiceStock.quantity) { setInvoiceError(`Total would exceed available stock (${addInvoiceStock.quantity}).`); return; }
+      if (newQty > batch.quantity) { 
+        setInvoiceError(`Total would exceed available stock (${batch.quantity}).`); 
+        return; 
+      }
       setInvoiceItems(prev => prev.map((i, idx) => idx === existing ? { ...i, quantity: newQty, total: newQty * i.price } : i));
     } else {
-      setInvoiceItems(prev => [...prev, { stock_id: addInvoiceStock.stock_id, product_name: addInvoiceStock.product?.product_name ?? 'Unknown', quantity: qty, price, total: qty * price, expiration_date: addInvoiceStock.expiration_date, availableQuantity: addInvoiceStock.quantity }]);
+      setInvoiceItems(prev => [...prev, { 
+        stock_id: batch.stock_id, 
+        product_id: batch.product_id,
+        product_name: batch.product?.product_name ?? 'Unknown', 
+        barcode: batch.product?.barcode ?? null,
+        quantity: qty, 
+        price, 
+        total: qty * price, 
+        expiration_date: batch.expiration_date, 
+        availableQuantity: batch.quantity,
+        isNewStock: false
+      }]);
     }
+    
+    setInvoiceSelectedProductId('');
+    setInvoiceSelectedProductStock([]);
+    setInvoiceSelectedBatchId('');
+    setAddInvoiceQty('');
     setShowAddInvoiceItem(false);
     setInvoiceError(null);
   };
@@ -806,6 +1008,36 @@ const loadUserPermissions = async (savedUser: any) => {
       fetchAll();
       setTimeout(() => { setShowInvoice(false); setInvoiceSuccess(null); showGlobalSuccess('Invoice created!'); }, 2000);
     }
+  };
+
+  // ── CSV Export ────────────────────────────────────────────────────────────────
+  const exportToCSV = () => {
+    const headers = ['Stock ID', 'Product', 'Barcode', 'Category', 'Location', 'Type', 'Quantity', 'Unit Cost', 'Total Value', 'Status', 'Expiry Date', 'Date Created'];
+    
+    const rows = filtered.map(s => [
+      s.stock_id,
+      s.product?.product_name ?? '—',
+      s.product?.barcode ?? '—',
+      s.product?.category ?? '—',
+      locationStr(s),
+      s.product_type ?? '—',
+      s.quantity,
+      s.unit_cost ?? 0,
+      (s.quantity * (s.unit_cost ?? 0)).toFixed(2),
+      s.status,
+      formatDate(s.expiration_date),
+      formatDate(s.date_created)
+    ]);
+
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stock-inventory-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showGlobalSuccess('CSV exported successfully!');
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -973,8 +1205,8 @@ const loadUserPermissions = async (savedUser: any) => {
         </div>
       )}
 
-      {/* ══ ADD ITEM SUB-MODAL ════════════════════════════════════════════════ */}
-      {showAddItem && addItemStock && (
+      {/* ══ ADD ITEM SUB-MODAL (Transaction) ═══════════════════════════════════ */}
+      {showAddItem && (
         <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={() => setShowAddItem(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -985,37 +1217,121 @@ const loadUserPermissions = async (savedUser: any) => {
             </div>
             <div className="modal-body">
               <div className="form-fields">
+                {/* Step 1: Select Product from PRODUCTS table (unique) */}
                 <div className="form-group">
-                  <label>Product</label>
-                  <input value={addItemStock.product?.product_name ?? ''} disabled />
+                  <label>Select Product <span className="required">*</span></label>
+                  <select 
+                    value={selectedProductId} 
+                    onChange={e => handleProductSelect(e.target.value)}
+                  >
+                    <option value="">— Choose Product —</option>
+                    {products.map(p => (
+                      <option key={p.product_id} value={p.product_id}>
+                        {p.product_name} {p.barcode ? `(${p.barcode})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div className="form-group">
-                  <label>Available Qty</label>
-                  <input value={addItemStock.quantity} disabled />
-                </div>
-                <div className="form-row-2">
+
+                {/* For Stock In/Return: No batch selection needed */}
+                {(transactionMode === 'IN' || transactionMode === 'RETURN') && selectedProductId && (
+                  <>
+                    <div className="form-row-2">
+                      <div className="form-group">
+                        <label>Quantity <span className="required">*</span></label>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={addItemQty} 
+                          onChange={e => setAddItemQty(e.target.value)} 
+                          autoFocus 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Price per Unit (₱) <span className="required">*</span></label>
+                        <input 
+                          type="number" 
+                          min="0" 
+                          step="0.01" 
+                          value={addItemPrice} 
+                          onChange={e => setAddItemPrice(e.target.value)} 
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>Expiration Date</label>
+                      <input type="date" value={addItemExpiry} onChange={e => setAddItemExpiry(e.target.value)} />
+                    </div>
+                  </>
+                )}
+
+                {/* For OUT/TRANSFER: Show batch selection */}
+                {(transactionMode === 'OUT' || transactionMode === 'TRANSFER') && selectedProductId && selectedProductStock.length > 0 && (
                   <div className="form-group">
-                    <label>Quantity <span className="required">*</span></label>
-                    <input type="number" min="1"
-                      max={transactionMode === 'OUT' || transactionMode === 'TRANSFER' ? addItemStock.quantity : undefined}
-                      value={addItemQty} onChange={e => setAddItemQty(e.target.value)} autoFocus />
+                    <label>Select Batch (FEFO) <span className="required">*</span></label>
+                    <select 
+                      value={selectedBatchId} 
+                      onChange={e => handleBatchSelect(e.target.value)}
+                    >
+                      <option value="">— Choose Batch —</option>
+                      {selectedProductStock.map(batch => (
+                        <option key={batch.stock_id} value={batch.stock_id}>
+                          Stock #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                )}
+
+                {(transactionMode === 'OUT' || transactionMode === 'TRANSFER') && selectedProductId && selectedProductStock.length === 0 && (
                   <div className="form-group">
-                    <label>Price per Unit (₱)</label>
-                    <input type="number" min="0" step="0.01" value={addItemPrice} onChange={e => setAddItemPrice(e.target.value)} />
+                    <div className="modal-error" style={{ marginTop: 0 }}>
+                      No available stock for this product.
+                    </div>
                   </div>
-                </div>
-                {(transactionMode === 'IN' || transactionMode === 'RETURN') && (
-                  <div className="form-group">
-                    <label>Expiration Date</label>
-                    <input type="date" value={addItemExpiry} onChange={e => setAddItemExpiry(e.target.value)} />
+                )}
+
+                {(transactionMode === 'OUT' || transactionMode === 'TRANSFER') && selectedBatchId && (
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label>Quantity <span className="required">*</span></label>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max={selectedProductStock.find(b => b.stock_id === Number(selectedBatchId))?.quantity}
+                        value={addItemQty} 
+                        onChange={e => setAddItemQty(e.target.value)} 
+                        autoFocus 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Price per Unit (₱)</label>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        step="0.01" 
+                        value={addItemPrice} 
+                        onChange={e => setAddItemPrice(e.target.value)} 
+                      />
+                    </div>
                   </div>
                 )}
               </div>
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowAddItem(false)}>Cancel</button>
-              <button className="modal-save" onClick={confirmAddItem}>Add to List</button>
+              <button 
+                className="modal-save" 
+                onClick={confirmAddItem} 
+                disabled={
+                  !selectedProductId || 
+                  !addItemQty || 
+                  ((transactionMode === 'OUT' || transactionMode === 'TRANSFER') && !selectedBatchId) ||
+                  ((transactionMode === 'IN' || transactionMode === 'RETURN') && !addItemPrice)
+                }
+              >
+                Add to List
+              </button>
             </div>
           </div>
         </div>
@@ -1043,19 +1359,11 @@ const loadUserPermissions = async (savedUser: any) => {
                     <label>Destination Location <span className="required">*</span></label>
                     <select value={selectedLocationId} onChange={e => setSelectedLocationId(e.target.value)}>
                       <option value="">— Select Location —</option>
-                      {locations
-                        .filter(l => {
-                          // If user is Warehouse role, only show their assigned location
-                          if (permissions.allowedLocationId && !permissions.canViewAll) {
-                            return l.location_id === permissions.allowedLocationId;
-                          }
-                          return true;
-                        })
-                        .map(l => (
-                          <option key={l.location_id} value={l.location_id}>
-                            {l.warehouse_name}{l.floor ? ` › Floor ${l.floor}` : ''}{l.shelf ? ` › Shelf ${l.shelf}` : ''}
-                          </option>
-                        ))}
+                      {locations.map(l => (
+                        <option key={l.location_id} value={l.location_id}>
+                          {l.warehouse_name}{l.floor ? ` › Floor ${l.floor}` : ''}{l.shelf ? ` › Shelf ${l.shelf}` : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 )}
@@ -1065,28 +1373,16 @@ const loadUserPermissions = async (savedUser: any) => {
                       <label>From Location <span className="required">*</span></label>
                       <select value={sourceLocationId} onChange={e => setSourceLocationId(e.target.value)}>
                         <option value="">— Source —</option>
-                        {locations
-                          .filter(l => {
-                            if (permissions.allowedLocationId && !permissions.canViewAll) {
-                              return l.location_id === permissions.allowedLocationId;
-                            }
-                            return true;
-                          })
-                          .map(l => <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>)}
+                        {locations.map(l => <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>)}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>To Location <span className="required">*</span></label>
                       <select value={targetLocationId} onChange={e => setTargetLocationId(e.target.value)}>
                         <option value="">— Destination —</option>
-                        {locations
-                          .filter(l => {
-                            if (permissions.allowedLocationId && !permissions.canViewAll) {
-                              return l.location_id === permissions.allowedLocationId;
-                            }
-                            return l.location_id !== Number(sourceLocationId);
-                          })
-                          .map(l => <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>)}
+                        {locations.filter(l => l.location_id !== Number(sourceLocationId)).map(l => (
+                          <option key={l.location_id} value={l.location_id}>{l.warehouse_name}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -1111,30 +1407,30 @@ const loadUserPermissions = async (savedUser: any) => {
               <div className="invoice-items-section" style={{ marginTop: 16 }}>
                 <div className="section-label-row">
                   <label>Items ({transactionItems.length})</label>
-                  <select className="add-product-select" onChange={e => {
-                    const s = stocks.find(x => x.stock_id === Number(e.target.value));
-                    if (s) openAddItemModal(s);
-                    e.target.value = '';
-                  }} value="">
-                    <option value="">+ Add Product</option>
-                    {stocks.filter(s => {
-                      if (transactionMode === 'TRANSFER' && sourceLocationId) return s.location_id === Number(sourceLocationId);
-                      return true;
-                    }).map(s => (
-                      <option key={s.stock_id} value={s.stock_id}>{s.product?.product_name} (Qty: {s.quantity})</option>
-                    ))}
-                  </select>
+                  <button className="add-product-btn" onClick={openAddItemModal}>
+                    + Add Product
+                  </button>
                 </div>
                 <div className="invoice-items-list">
                   {transactionItems.length === 0 ? (
                     <div className="invoice-empty">No items added yet. Use "+ Add Product" above.</div>
                   ) : (
                     <table className="invoice-items-table">
-                      <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Batch/Location</th>
+                          <th>Qty</th>
+                          <th>Price</th>
+                          <th>Total</th>
+                          <th></th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {transactionItems.map(item => (
                           <tr key={item.stock_id}>
                             <td>{item.product_name}</td>
+                            <td style={{ fontSize: '0.8rem' }}>{item.location_label || (item.isNewStock ? 'New Stock' : `Batch #${item.stock_id}`)}</td>
                             <td>
                               <input type="number" min="1" max={item.availableQuantity} value={item.quantity}
                                 onChange={e => {
@@ -1158,7 +1454,7 @@ const loadUserPermissions = async (savedUser: any) => {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600, padding: '10px 12px' }}>Grand Total:</td>
+                          <td colSpan={4} style={{ textAlign: 'right', fontWeight: 600, padding: '10px 12px' }}>Grand Total:</td>
                           <td colSpan={2} style={{ fontWeight: 800, fontSize: '1.05rem', padding: '10px 12px' }}>₱{transactionItems.reduce((s, i) => s + i.total, 0).toFixed(2)}</td>
                         </tr>
                       </tfoot>
@@ -1178,7 +1474,7 @@ const loadUserPermissions = async (savedUser: any) => {
       )}
 
       {/* ══ ADD INVOICE ITEM SUB-MODAL ════════════════════════════════════════ */}
-      {showAddInvoiceItem && addInvoiceStock && (
+      {showAddInvoiceItem && (
         <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => setShowAddInvoiceItem(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -1189,23 +1485,65 @@ const loadUserPermissions = async (savedUser: any) => {
             </div>
             <div className="modal-body">
               <div className="form-fields">
-                <div className="form-group"><label>Product</label><input value={addInvoiceStock.product?.product_name ?? ''} disabled /></div>
-                <div className="form-group"><label>Available Qty</label><input value={addInvoiceStock.quantity} disabled /></div>
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Quantity <span className="required">*</span></label>
-                    <input type="number" min="1" max={addInvoiceStock.quantity} value={addInvoiceQty} onChange={e => setAddInvoiceQty(e.target.value)} autoFocus />
-                  </div>
-                  <div className="form-group">
-                    <label>Price per Unit (₱)</label>
-                    <input type="number" min="0" step="0.01" value={addInvoicePrice} onChange={e => setAddInvoicePrice(e.target.value)} />
-                  </div>
+                <div className="form-group">
+                  <label>Select Product <span className="required">*</span></label>
+                  <select 
+                    value={invoiceSelectedProductId} 
+                    onChange={e => handleInvoiceProductSelect(e.target.value)}
+                  >
+                    <option value="">— Choose Product —</option>
+                    {products.map(p => (
+                      <option key={p.product_id} value={p.product_id}>
+                        {p.product_name} {p.barcode ? `(${p.barcode})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+
+                {invoiceSelectedProductId && invoiceSelectedProductStock.length > 0 && (
+                  <div className="form-group">
+                    <label>Select Batch (FEFO) <span className="required">*</span></label>
+                    <select 
+                      value={invoiceSelectedBatchId} 
+                      onChange={e => handleInvoiceBatchSelect(e.target.value)}
+                    >
+                      <option value="">— Choose Batch —</option>
+                      {invoiceSelectedProductStock.map(batch => (
+                        <option key={batch.stock_id} value={batch.stock_id}>
+                          Stock #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {invoiceSelectedProductId && invoiceSelectedProductStock.length === 0 && (
+                  <div className="form-group">
+                    <div className="modal-error" style={{ marginTop: 0 }}>
+                      No available stock for this product.
+                    </div>
+                  </div>
+                )}
+
+                {invoiceSelectedBatchId && (
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label>Quantity <span className="required">*</span></label>
+                      <input type="number" min="1" value={addInvoiceQty} onChange={e => setAddInvoiceQty(e.target.value)} autoFocus />
+                    </div>
+                    <div className="form-group">
+                      <label>Price per Unit (₱)</label>
+                      <input type="number" min="0" step="0.01" value={addInvoicePrice} onChange={e => setAddInvoicePrice(e.target.value)} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setShowAddInvoiceItem(false)}>Cancel</button>
-              <button className="modal-save" onClick={confirmAddInvoiceItem}>Add to Invoice</button>
+              <button className="modal-save" onClick={confirmAddInvoiceItem} disabled={!invoiceSelectedBatchId || !addInvoiceQty}>
+                Add to Invoice
+              </button>
             </div>
           </div>
         </div>
@@ -1249,37 +1587,52 @@ const loadUserPermissions = async (savedUser: any) => {
               <div className="invoice-items-section" style={{ marginTop: 16 }}>
                 <div className="section-label-row">
                   <label>Invoice Items ({invoiceItems.length})</label>
-                  <select className="add-product-select" onChange={e => {
-                    const s = stocks.find(x => x.stock_id === Number(e.target.value));
-                    if (s) openAddInvoiceItem(s);
-                    e.target.value = '';
-                  }} value="">
-                    <option value="">+ Add Product</option>
-                    {stocks.filter(s => s.quantity > 0).map(s => (
-                      <option key={s.stock_id} value={s.stock_id}>{s.product?.product_name} (Qty: {s.quantity})</option>
-                    ))}
-                  </select>
+                  <button className="add-product-btn" onClick={openAddInvoiceItem}>
+                    + Add Product
+                  </button>
                 </div>
                 <div className="invoice-items-list">
                   {invoiceItems.length === 0 ? (
                     <div className="invoice-empty">No items added. Use "+ Add Product" above.</div>
                   ) : (
                     <table className="invoice-items-table">
-                      <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th><th></th></tr></thead>
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Batch</th>
+                          <th>Expiry</th>
+                          <th>Qty</th>
+                          <th>Price</th>
+                          <th>Total</th>
+                          <th></th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {invoiceItems.map(item => (
                           <tr key={item.stock_id}>
                             <td>{item.product_name}</td>
-                            <td><input type="number" min="1" max={item.availableQuantity} value={item.quantity} onChange={e => updateInvoiceItem(item.stock_id, Number(e.target.value), item.price)} style={{ width: 65 }} /></td>
-                            <td><input type="number" min="0" step="0.01" value={item.price} onChange={e => updateInvoiceItem(item.stock_id, item.quantity, Number(e.target.value))} style={{ width: 90 }} /></td>
+                            <td style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>#{item.stock_id}</td>
+                            <td className="td-date">{formatDate(item.expiration_date)}</td>
+                            <td>
+                              <input type="number" min="1" max={item.availableQuantity} value={item.quantity} 
+                                onChange={e => updateInvoiceItem(item.stock_id, Number(e.target.value), item.price)} 
+                                style={{ width: 65 }} />
+                            </td>
+                            <td>
+                              <input type="number" min="0" step="0.01" value={item.price} 
+                                onChange={e => updateInvoiceItem(item.stock_id, item.quantity, Number(e.target.value))} 
+                                style={{ width: 90 }} />
+                            </td>
                             <td style={{ fontWeight: 700 }}>₱{item.total.toFixed(2)}</td>
-                            <td><button className="remove-item-btn" onClick={() => setInvoiceItems(prev => prev.filter(i => i.stock_id !== item.stock_id))}>×</button></td>
+                            <td>
+                              <button className="remove-item-btn" onClick={() => setInvoiceItems(prev => prev.filter(i => i.stock_id !== item.stock_id))}>×</button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600, padding: '10px 12px' }}>Grand Total:</td>
+                          <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600, padding: '10px 12px' }}>Grand Total:</td>
                           <td colSpan={2} style={{ fontWeight: 800, fontSize: '1.05rem', padding: '10px 12px', color: '#1B3C53' }}>₱{invoiceTotal.toFixed(2)}</td>
                         </tr>
                       </tfoot>
@@ -1341,6 +1694,7 @@ const loadUserPermissions = async (savedUser: any) => {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
             Create Invoice
           </button>
+          
           <button className="wh-add-btn" onClick={fetchAll}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
             Refresh
@@ -1370,7 +1724,6 @@ const loadUserPermissions = async (savedUser: any) => {
           {(['All', 'S1', 'Bidding'] as TypeFilter[])
             .filter(t => {
               if (t === 'All') return true;
-              // Only show type if user has permission to view it
               return permissions.canViewAll || permissions.allowedTypes.includes(t);
             })
             .map(t => (
@@ -1432,84 +1785,84 @@ const loadUserPermissions = async (savedUser: any) => {
         ) : (
           <>
             <table className="wh-table">
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>Product</th>
-      <th>Barcode</th>
-      <th>Location</th>
-      <th>Type</th>
-      <th>Qty</th>
-      <th>Unit Cost</th>
-      <th>Status</th>
-      <th>Expiry</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody>
-    {paginated.map(s => (
-      <tr key={s.stock_id}>
-        <td className="td-id">{s.stock_id}</td>
-        <td>
-          <div className="wh-name-cell">
-            <div className="wh-avatar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-              </svg>
-            </div>
-            <div className="wh-name-info">
-              <span className="wh-name-primary">{s.product?.product_name ?? '—'}</span>
-              <span className="wh-name-secondary">{s.product?.category ?? '—'} · {s.product?.unit ?? ''}</span>
-            </div>
-          </div>
-        </td>
-        <td className="td-muted" style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{s.product?.barcode ?? '—'}</td>
-        <td className="td-location">{locationStr(s)}</td>
-        <td>{s.product_type ? <span className="floor-pill">{s.product_type}</span> : <span className="td-muted">—</span>}</td>
-        <td><span className={`qty-badge ${getQtyClass(s.quantity)}`}>{s.quantity}</span></td>
-        <td style={{ fontWeight: 600 }}>₱{s.unit_cost?.toFixed(2) ?? '—'}</td>
-        <td><span className={`status-badge sm ${STATUS_COLOR[s.status] ?? 'status-inactive'}`}>{s.status}</span></td>
-        <td className="td-date">{formatDate(s.expiration_date)}</td>
-        <td>
-          <div className="action-btns">
-            <button className="tbl-btn view" title="View" onClick={() => setViewStock(s)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </button>
-            <button className="tbl-btn batches" title="View Batches (FEFO)" onClick={() => openViewProduct(s)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="8" y1="6" x2="21" y2="6"/>
-                <line x1="8" y1="12" x2="21" y2="12"/>
-                <line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/>
-                <line x1="3" y1="12" x2="3.01" y2="12"/>
-                <line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-            </button>
-            {!permissions.canOnlySalesOut && (
-              <button className="tbl-btn edit" title="Edit" onClick={() => openEdit(s)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                </svg>
-              </button>
-            )}
-            <button className="tbl-btn add-invoice" title="Add to Invoice" onClick={() => { if (!showInvoice) setShowInvoice(true); openAddInvoiceItem(s); }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="12" y1="13" x2="12" y2="17" />
-                <line x1="10" y1="15" x2="14" y2="15" />
-              </svg>
-            </button>
-          </div>
-        </td>
-      </tr>
-    ))}
-  </tbody>
-</table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>Barcode</th>
+                  <th>Location</th>
+                  <th>Type</th>
+                  <th>Qty</th>
+                  <th>Unit Cost</th>
+                  <th>Status</th>
+                  <th>Expiry</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map(s => (
+                  <tr key={s.stock_id}>
+                    <td className="td-id">{s.stock_id}</td>
+                    <td>
+                      <div className="wh-name-cell">
+                        <div className="wh-avatar">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                          </svg>
+                        </div>
+                        <div className="wh-name-info">
+                          <span className="wh-name-primary">{s.product?.product_name ?? '—'}</span>
+                          <span className="wh-name-secondary">{s.product?.category ?? '—'} · {s.product?.unit ?? ''}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="td-muted" style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{s.product?.barcode ?? '—'}</td>
+                    <td className="td-location">{locationStr(s)}</td>
+                    <td>{s.product_type ? <span className="floor-pill">{s.product_type}</span> : <span className="td-muted">—</span>}</td>
+                    <td><span className={`qty-badge ${getQtyClass(s.quantity)}`}>{s.quantity}</span></td>
+                    <td style={{ fontWeight: 600 }}>₱{s.unit_cost?.toFixed(2) ?? '—'}</td>
+                    <td><span className={`status-badge sm ${STATUS_COLOR[s.status] ?? 'status-inactive'}`}>{s.status}</span></td>
+                    <td className="td-date">{formatDate(s.expiration_date)}</td>
+                    <td>
+                      <div className="action-btns">
+                        <button className="tbl-btn view" title="View" onClick={() => setViewStock(s)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </button>
+                        <button className="tbl-btn batches" title="View Batches (FEFO)" onClick={() => openViewProduct(s)}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                          </svg>
+                        </button>
+                        {!permissions.canOnlySalesOut && (
+                          <button className="tbl-btn edit" title="Edit" onClick={() => openEdit(s)}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                        )}
+                        <button className="tbl-btn add-invoice" title="Add to Invoice" onClick={() => { if (!showInvoice) setShowInvoice(true); openAddInvoiceItem(); }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="12" y1="13" x2="12" y2="17" />
+                            <line x1="10" y1="15" x2="14" y2="15" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
             {/* Pagination */}
             <div className="pagination">

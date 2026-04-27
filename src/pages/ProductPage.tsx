@@ -90,8 +90,9 @@ export default function ProductPage() {
   // ── Barcode Scanner ───────────────────────────────────────────────────────
   const [scanOpen, setScanOpen]   = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [scannerReady, setScannerReady] = useState(false);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
-  const scannerContainerId = "scanner-container";
+  const scannerContainerId = 'qr-scanner-mount';
 
   // ── Import ────────────────────────────────────────────────────────────────
   const [importOpen, setImportOpen]       = useState(false);
@@ -129,11 +130,116 @@ export default function ProductPage() {
   // Cleanup scanner on unmount
   useEffect(() => {
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-      }
+      destroyScanner();
     };
   }, []);
+
+  // Initialize scanner when modal opens and DOM is ready
+  useEffect(() => {
+    if (scanOpen && !scanError) {
+      // Use a short delay to ensure the DOM node is mounted
+      const timer = setTimeout(() => {
+        initScanner();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [scanOpen, scannerReady]);
+
+  // ── Scanner helpers ───────────────────────────────────────────────────────
+  const destroyScanner = () => {
+    if (scannerRef.current) {
+      try {
+        scannerRef.current.clear();
+      } catch (_) {
+        // ignore errors during cleanup
+      }
+      scannerRef.current = null;
+    }
+  };
+
+  const initScanner = () => {
+    const el = document.getElementById(scannerContainerId);
+    if (!el) {
+      setScanError('Scanner container could not be found. Please try again.');
+      return;
+    }
+
+    destroyScanner();
+
+    try {
+      const scanner = new Html5QrcodeScanner(
+        scannerContainerId,
+        {
+          fps: 10,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.floor(minEdge * 0.7);
+            return { width: size, height: Math.floor(size * 0.6) };
+          },
+          aspectRatio: window.innerWidth <= 480 ? 1.0 : 1.333,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+          ],
+          rememberLastUsedCamera: true,
+          showTorchButtonIfSupported: true,
+        },
+        /* verbose= */ false
+      );
+
+      scanner.render(
+        (decodedText: string) => {
+          setFormData(prev => ({ ...prev, barcode: decodedText }));
+          closeScanner();
+        },
+        (errorMessage: string) => {
+          // Suppress the common "not found" noise — only surface real errors
+          if (
+            errorMessage &&
+            !errorMessage.includes('NotFoundException') &&
+            !errorMessage.includes('No MultiFormat Readers')
+          ) {
+            console.debug('Scan decode error:', errorMessage);
+          }
+        }
+      );
+
+      scannerRef.current = scanner;
+    } catch (err: any) {
+      console.error('Scanner init error:', err);
+      setScanError(
+        err?.message?.includes('permission') || err?.message?.includes('Permission')
+          ? 'Camera permission was denied. Please allow camera access and try again.'
+          : err?.message || 'Failed to start the scanner. Please try again.'
+      );
+    }
+  };
+
+  const openScanner = () => {
+    setScanError(null);
+    setScannerReady(false);
+    setScanOpen(true);
+    // Flip scannerReady after state settles so the useEffect re-fires
+    setTimeout(() => setScannerReady(true), 50);
+  };
+
+  const closeScanner = () => {
+    destroyScanner();
+    setScanOpen(false);
+    setScanError(null);
+    setScannerReady(false);
+  };
+
+  const retryScanner = () => {
+    setScanError(null);
+    setScannerReady(false);
+    setTimeout(() => setScannerReady(true), 100);
+  };
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchProducts = async () => {
@@ -212,8 +318,6 @@ export default function ProductPage() {
 
   const totalProducts   = filtered.length;
   const activeCount     = filtered.filter(p => p.status === 'Active').length;
-  const lowStockCount   = filtered.filter(p => { const q = getTotalQty(p); return q > 0 && q < 10; }).length;
-  const outOfStockCount = filtered.filter(p => getTotalQty(p) === 0).length;
   const startItem       = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endItem         = Math.min(currentPage * pageSize, filtered.length);
 
@@ -255,70 +359,6 @@ export default function ProductPage() {
     setFormLoading(false);
     if (error) { setFormError(error.code === '23505' ? 'A product with this barcode already exists.' : error.message); return; }
     closeForm(); fetchProducts();
-  };
-
-  // ── Barcode Scanner Functions using html5-qrcode ─────────────────────────
-  const openScanner = () => {
-    setScanError(null);
-    setScanOpen(true);
-    
-    setTimeout(() => {
-      const element = document.getElementById(scannerContainerId);
-      if (!element) {
-        setScanError('Scanner container not found');
-        return;
-      }
-      
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-      }
-      
-      try {
-        scannerRef.current = new Html5QrcodeScanner(
-          scannerContainerId,
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
-            aspectRatio: 1.0,
-            formatsToSupport: [
-              Html5QrcodeSupportedFormats.QR_CODE,
-              Html5QrcodeSupportedFormats.CODE_128,
-              Html5QrcodeSupportedFormats.CODE_39,
-              Html5QrcodeSupportedFormats.EAN_13,
-              Html5QrcodeSupportedFormats.EAN_8,
-              Html5QrcodeSupportedFormats.UPC_A,
-              Html5QrcodeSupportedFormats.UPC_E,
-            ]
-          },
-          false
-        );
-        
-        scannerRef.current.render(
-          (decodedText) => {
-            console.log('Scanned:', decodedText);
-            setFormData(prev => ({ ...prev, barcode: decodedText }));
-            closeScanner();
-          },
-          (errorMessage) => {
-            if (errorMessage && !errorMessage.includes('NotFoundException')) {
-              console.debug('Scan error:', errorMessage);
-            }
-          }
-        );
-      } catch (err: any) {
-        console.error('Scanner initialization error:', err);
-        setScanError(err.message || 'Failed to initialize scanner');
-      }
-    }, 100);
-  };
-
-  const closeScanner = () => {
-    if (scannerRef.current) {
-      scannerRef.current.clear();
-      scannerRef.current = null;
-    }
-    setScanOpen(false);
-    setScanError(null);
   };
 
   // ── Import CSV / Excel ────────────────────────────────────────────────────
@@ -695,10 +735,11 @@ export default function ProductPage() {
         </div>
       )}
 
-      {/* ── SCANNER MODAL - HIGHER Z-INDEX, RENDERED LAST ───────────────── */}
+      {/* ── SCANNER MODAL ─────────────────────────────────────────────── */}
+      {/* Rendered last so it sits on top of all other modals via z-index  */}
       {scanOpen && (
-        <div className="modal-overlay scanner-overlay" onClick={closeScanner}>
-          <div className="modal-card scanner-card" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay scanner-modal-overlay" onClick={closeScanner}>
+          <div className="modal-card scanner-modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-header-left">
                 <span className="modal-tag">Barcode / QR Scanner</span>
@@ -710,45 +751,43 @@ export default function ProductPage() {
                 </svg>
               </button>
             </div>
+
             <div className="scanner-body">
               {scanError ? (
+                /* ── Error state ── */
                 <div className="scan-error-box">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
                   </svg>
                   <p>{scanError}</p>
-                  <button 
-                    className="retry-btn" 
-                    onClick={() => {
-                      closeScanner();
-                      setTimeout(() => openScanner(), 100);
-                    }}
-                  >
-                    Try Again
-                  </button>
+                  <button className="retry-btn" onClick={retryScanner}>Try Again</button>
                 </div>
               ) : (
+                /* ── Scanner mount point ── */
+                // IMPORTANT: No overlay div on top of this — html5-qrcode renders its
+                // own UI (video + canvas + buttons) inside this div. Placing an
+                // absolutely-positioned overlay here blocks pointer events and breaks
+                // the scanner controls.
                 <div className="scanner-viewport">
-                  <div id={scannerContainerId} style={{ width: '100%', minHeight: '400px' }}></div>
-                  <div className="scanner-overlay-guide">
-                    <div className="scanner-frame" />
-                  </div>
+                  <div id={scannerContainerId} className="scanner-mount" />
                 </div>
               )}
+
               <p className="scanner-hint">
-                Position the barcode or QR code within the frame to scan automatically.
+                Point the camera at a barcode or QR code. It will scan automatically.
               </p>
             </div>
+
             <div className="modal-footer">
-              <button className="modal-btn-close" onClick={closeScanner}>
-                Cancel
-              </button>
+              <button className="modal-btn-close" onClick={closeScanner}>Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header */}
+      {/* ── HEADER ────────────────────────────────────────────────────── */}
       <div className="product-header">
         <div className="product-header-left">
           <h1 className="product-title">Product</h1>
@@ -763,7 +802,7 @@ export default function ProductPage() {
         </button>
       </div>
 
-      {/* Filters row */}
+      {/* ── FILTERS ───────────────────────────────────────────────────── */}
       <div className="product-filters">
         <div className="product-search-wrap">
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

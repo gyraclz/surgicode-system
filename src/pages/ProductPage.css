@@ -465,7 +465,7 @@
   }
   
   /* ════════════════════════════════════════════════════
-     MODAL
+     MODAL — base styles
      ════════════════════════════════════════════════════ */
   
   .modal-overlay {
@@ -796,67 +796,84 @@
     border-radius: 10px;
     color: #1B3C53;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
   }
   
   .scan-btn svg { width: 16px; height: 16px; }
   .scan-btn:hover { background: #1B3C53; color: white; border-color: #1B3C53; }
   
-  /* ── SCANNER MODAL ───────────────────────────────── */
-  .scanner-card { max-width: 500px; }
+  /* ════════════════════════════════════════════════════
+     SCANNER MODAL
+     Uses distinct class names (.scanner-modal-overlay /
+     .scanner-modal-card) to avoid any conflict with the
+     .scanner-overlay helper used inside the viewport.
+     ════════════════════════════════════════════════════ */
   
+  /* Give the scanner modal a higher stacking context so
+     it always appears above the form / view modals.     */
+  .scanner-modal-overlay {
+    z-index: 1200;
+    background: rgba(15, 30, 45, 0.65);
+  }
+  
+  .scanner-modal-card {
+    max-width: 500px;
+  }
+  
+  /* Body inside the scanner modal card */
   .scanner-body {
-    padding: 18px 22px;
+    padding: 18px 22px 4px;
     display: flex;
     flex-direction: column;
     gap: 14px;
     align-items: center;
   }
   
+  /* Outer wrapper that gives the scanner its dark background */
   .scanner-viewport {
     position: relative;
     width: 100%;
-    min-height: 400px;
-    background: #000;
     border-radius: 12px;
     overflow: hidden;
+    background: #0a0a0a;
+    /* Let the content size the height naturally */
+    min-height: 300px;
   }
   
-  #scanner-container {
+  /* The actual div that html5-qrcode owns.
+     Do NOT place any absolutely-positioned children on top of
+     this element — the library renders its own video, canvas,
+     and control buttons inside here, and overlapping elements
+     will block pointer events on those controls.             */
+  .scanner-mount {
     width: 100%;
-    min-height: 400px;
   }
   
-  #scanner-container video {
+  /* Let the library's own video/canvas fill the container     */
+  .scanner-mount video {
     width: 100% !important;
     height: auto !important;
-    object-fit: cover;
-  }
-  
-  #scanner-container div {
+    display: block;
     border-radius: 12px;
   }
   
-  .scanner-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
+  /* Tidy up the library's default UI chrome so it fits our design */
+  #qr-scanner-mount {
+    width: 100%;
   }
   
-  .scanner-frame {
-    width: 80%;
-    height: 80%;
-    border: 2px solid rgba(255, 255, 255, 0.8);
-    border-radius: 8px;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  #qr-scanner-mount > div {
+    border: none !important;
+    padding: 0 !important;
   }
   
+  /* The library injects inline styles on its shaded region — 
+     we override border/background of the scan region box     */
+  #qr-scanner-mount img[alt="Info icon"] {
+    display: none; /* hide verbose library icon if present   */
+  }
+  
+  /* ── Error state inside scanner ──────────────────── */
   .scan-error-box {
     display: flex;
     flex-direction: column;
@@ -864,8 +881,8 @@
     gap: 12px;
     background: #fef2f2;
     border: 1.5px solid #fecaca;
-    border-radius: 10px;
-    padding: 40px 20px;
+    border-radius: 12px;
+    padding: 40px 24px;
     font-size: 0.85rem;
     color: #dc2626;
     width: 100%;
@@ -874,32 +891,43 @@
   }
   
   .scan-error-box svg {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     flex-shrink: 0;
   }
   
+  .scan-error-box p {
+    margin: 0;
+    line-height: 1.5;
+    color: #b91c1c;
+    font-weight: 500;
+  }
+  
   .retry-btn {
-    margin-top: 8px;
-    padding: 8px 16px;
-    background: #3b82f6;
+    margin-top: 4px;
+    padding: 9px 20px;
+    background: #1B3C53;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
     font-size: 0.85rem;
-    font-weight: 500;
-    transition: background 0.15s;
+    font-weight: 600;
+    transition: background 0.15s, transform 0.15s;
   }
   
   .retry-btn:hover {
-    background: #2563eb;
+    background: #0b4b6b;
+    transform: translateY(-1px);
   }
   
+  /* ── Hint text below scanner ────────────────────── */
   .scanner-hint {
     font-size: 0.82rem;
     color: #7a8fa0;
     text-align: center;
+    line-height: 1.5;
+    padding-bottom: 2px;
   }
   
   /* ── IMPORT ──────────────────────────────────────── */
@@ -991,10 +1019,11 @@
     .modal-stock-section { margin: 14px 18px 0; }
     .modal-footer { padding: 14px 18px 18px; }
     .form-body { padding: 16px 18px 4px; }
-    
-    .scanner-card { max-width: 90%; }
-    .scanner-viewport { min-height: 350px; }
-    #scanner-container { min-height: 350px; }
+  
+    /* Scanner responsive */
+    .scanner-modal-card { max-width: 92vw; }
+    .scanner-body { padding: 14px 18px 4px; }
+    .scanner-viewport { min-height: 260px; }
   }
   
   @media (max-width: 480px) {
@@ -1016,6 +1045,7 @@
     .pagination-pagesize { width: 100%; justify-content: space-between; }
     .page-ellipsis { display: none; }
   
+    /* Bottom-sheet modals on mobile */
     .modal-overlay { padding: 0; align-items: flex-end; }
     .modal-card {
       border-radius: 18px 18px 0 0;
@@ -1043,9 +1073,19 @@
     .modal-btn-edit, .modal-btn-close { width: 100%; justify-content: center; }
     .modal-btn-edit { display: flex; }
     .form-body { padding: 14px 16px 4px; }
-    
-    .scanner-viewport { min-height: 300px; }
-    #scanner-container { min-height: 300px; }
+  
+    /* Scanner on small screens keeps the overlay centered (not bottom-sheet) */
+    .scanner-modal-overlay {
+      padding: 12px;
+      align-items: center;
+    }
+    .scanner-modal-card {
+      border-radius: 18px;
+      max-height: 88vh;
+      animation: cardIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .scanner-body { padding: 12px 14px 4px; }
+    .scanner-viewport { min-height: 220px; }
   }
   
   @media (max-width: 360px) {
@@ -1055,149 +1095,3 @@
     .stat-num { font-size: 0.95rem; }
     .stat-label { font-size: 0.72rem; }
   }
-
-  /* Add these styles to your existing ProductPage.css */
-
-/* Scanner overlay with higher z-index */
-.scanner-overlay {
-  z-index: 2000 !important;
-  background: rgba(15, 30, 45, 0.8) !important;
-}
-
-.scanner-card {
-  z-index: 2001 !important;
-  max-width: 500px !important;
-}
-
-.scanner-body {
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
-}
-
-.scanner-viewport {
-  position: relative;
-  width: 100%;
-  min-height: 400px;
-  background: #000;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-#scanner-container {
-  width: 100%;
-  min-height: 400px;
-}
-
-#scanner-container video {
-  width: 100% !important;
-  height: auto !important;
-  object-fit: cover;
-  border-radius: 12px;
-}
-
-.scanner-overlay-guide {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 10;
-}
-
-.scanner-frame {
-  width: 80%;
-  height: 80%;
-  border: 2px solid rgba(255, 255, 255, 0.8);
-  border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-}
-
-.scan-error-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  background: #fef2f2;
-  border: 1.5px solid #fecaca;
-  border-radius: 10px;
-  padding: 40px 20px;
-  font-size: 0.85rem;
-  color: #dc2626;
-  width: 100%;
-  box-sizing: border-box;
-  text-align: center;
-}
-
-.scan-error-box svg {
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-}
-
-.retry-btn {
-  margin-top: 8px;
-  padding: 8px 16px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 500;
-  transition: background 0.15s;
-}
-
-.retry-btn:hover {
-  background: #2563eb;
-}
-
-.scanner-hint {
-  font-size: 0.82rem;
-  color: #7a8fa0;
-  text-align: center;
-}
-
-/* Ensure other modals have proper z-index */
-.modal-overlay:not(.scanner-overlay) {
-  z-index: 1000;
-}
-
-.modal-card:not(.scanner-card) {
-  z-index: 1001;
-}
-
-/* Responsive adjustments for scanner */
-@media (max-width: 768px) {
-  .scanner-card {
-    max-width: 90% !important;
-  }
-  
-  .scanner-viewport {
-    min-height: 350px;
-  }
-  
-  #scanner-container {
-    min-height: 350px;
-  }
-}
-
-@media (max-width: 480px) {
-  .scanner-viewport {
-    min-height: 300px;
-  }
-  
-  #scanner-container {
-    min-height: 300px;
-  }
-  
-  .scanner-body {
-    padding: 14px 16px;
-  }
-}
