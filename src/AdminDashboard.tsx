@@ -830,33 +830,6 @@ export default function Dashboard() {
             </div>
 
             <div className="metric-card">
-              <div className="metric-icon green">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                </svg>
-              </div>
-              <div className="metric-content">
-                <span className="metric-value">{formatCurrency(stats.totalStockValue)}</span>
-                <span className="metric-label">Total Stock Value</span>
-              </div>
-            </div>
-
-            <div className="metric-card">
-              <div className="metric-icon purple">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="12" x2="12" y2="16"/>
-                  <line x1="12" y1="8" x2="12.01" y2="8"/>
-                </svg>
-              </div>
-              <div className="metric-content">
-                <span className="metric-value">{stats.totalUnits.toLocaleString()}</span>
-                <span className="metric-label">Total Units</span>
-              </div>
-            </div>
-
-            <div className="metric-card">
               <div className="metric-icon orange">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/>
