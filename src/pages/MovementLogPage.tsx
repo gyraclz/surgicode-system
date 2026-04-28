@@ -434,13 +434,6 @@ function MovementLogPage() {
       return [{ id: 'overall', label: 'Overall' }];
     }
     
-    // Admin and Manager can see all warehouses
-    return [
-      { id: 'overall', label: 'Overall' },
-      { id: 'warehouseA', label: 'Warehouse A' },
-      { id: 'warehouseB', label: 'Warehouse B' },
-      { id: 'warehouseC', label: 'Warehouse C' },
-    ];
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -471,18 +464,6 @@ function MovementLogPage() {
         </button>
       </div>
 
-      {/* Warehouse Tabs (filtered by permissions) */}
-      <div className="ml-warehouse-tabs">
-        {getAvailableWarehouses().map(warehouse => (
-          <button
-            key={warehouse.id}
-            className={`ml-tab ${activeSection === warehouse.id ? 'active' : ''}`}
-            onClick={() => setActiveSection(warehouse.id)}
-          >
-            {warehouse.label}
-          </button>
-        ))}
-      </div>
 
       {/* Filters */}
       <div className="ml-filters">
