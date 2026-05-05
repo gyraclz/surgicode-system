@@ -341,6 +341,8 @@ export default function ViewStockPage() {
             }
             
             closeScanner();
+            // Re-open the add item modal after successful scan
+            setShowAddItem(true);
           } else {
             setScanError(`Product with barcode "${decodedText}" not found.`);
             setTimeout(() => setScanError(null), 3000);
@@ -369,6 +371,8 @@ export default function ViewStockPage() {
   };
 
   const openScanner = () => {
+    // Close the add item modal first
+    setShowAddItem(false);
     setScanError(null);
     setScannerReady(false);
     setScanOpen(true);
@@ -380,6 +384,8 @@ export default function ViewStockPage() {
     setScanOpen(false);
     setScanError(null);
     setScannerReady(false);
+    // Re-open the add item modal when scanner is closed without scanning
+    setShowAddItem(true);
   };
 
   const retryScanner = () => {
@@ -1164,7 +1170,7 @@ export default function ViewStockPage() {
       )}
 
       {/* ══ ADD ITEM SUB-MODAL (Transaction) ═══════════════════════════════════ */}
-      {showAddItem && (
+      {showAddItem && !scanOpen && (
         <div className="modal-overlay" style={{ zIndex: 1100 }} onClick={() => setShowAddItem(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -1378,7 +1384,7 @@ export default function ViewStockPage() {
       )}
 
       {/* ══ TRANSACTION MODAL ════════════════════════════════════════════════ */}
-      {transactionMode && !showAddItem && (
+      {transactionMode && !showAddItem && !scanOpen && (
         <div className="modal-overlay" onClick={() => { if (!transactionLoading) setTransactionMode(null); }}>
           <div className="modal-card transaction-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -1453,7 +1459,7 @@ export default function ViewStockPage() {
               <div className="invoice-items-section" style={{ marginTop: 16 }}>
                 <div className="section-label-row">
                   <label>Items ({transactionItems.length})</label>
-                  <button className="add-product-btn" onClick={openAddItemModal}>
+                  <button className="wh-add-btn" onClick={openAddItemModal}>
                     + Add Product
                   </button>
                 </div>
