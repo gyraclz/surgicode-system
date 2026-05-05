@@ -12,6 +12,7 @@ interface Supplier {
 interface StockRow {
   quantity: number;
   unit_cost: number;
+  expiration_date?: string;
 }
 
 interface Product {
@@ -32,6 +33,17 @@ interface RelationOption {
   name: string;
 }
 
+interface CategoryOption {
+  category_id: number;
+  category_name: string;
+}
+
+interface UnitOption {
+  unit_id: number;
+  unit_name: string;
+  unit_symbol: string;
+}
+
 interface ProductFormData {
   product_name: string;
   barcode: string;
@@ -48,9 +60,11 @@ const STATUS_COLORS: Record<string, string> = {
   Active:   'badge-green',
   Inactive: 'badge-red',
   Archived: 'badge-gray',
+  Expired:  'badge-expired',
 };
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const MAX_CATEGORIES = 10;
 
 const EMPTY_FORM: ProductFormData = {
   product_name: '',
@@ -59,6 +73,36 @@ const EMPTY_FORM: ProductFormData = {
   unit: '',
   status: 'Active',
   supplier_id: '',
+};
+
+// ── Helper Functions ─────────────────────────────────────────────────────────
+const checkAndUpdateExpiredStatus = async (productId: number, currentStatus: string) => {
+  if (currentStatus === 'Expired') return currentStatus;
+  
+  const { data: stockData } = await supabase
+    .from('stock')
+    .select('expiration_date')
+    .eq('product_id', productId)
+    .order('expiration_date', { ascending: true })
+    .limit(1);
+  
+  if (stockData && stockData[0]?.expiration_date) {
+    const expiryDate = new Date(stockData[0].expiration_date);
+    const today = new Date();
+    
+    if (expiryDate < today) {
+      await supabase
+        .from('product')
+        .update({ status: 'Expired' })
+        .eq('product_id', productId);
+      return 'Expired';
+    }
+  }
+  return currentStatus;
+};
+
+const getTotalStockValue = (stock: StockRow[]): number => {
+  return stock.reduce((total, item) => total + (item.quantity * item.unit_cost), 0);
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -86,6 +130,26 @@ export default function ProductPage() {
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError]     = useState<string | null>(null);
   const [suppliers, setSuppliers]     = useState<RelationOption[]>([]);
+  
+  // ── Categories & Units ─────────────────────────────────────────────────────
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [units, setUnits] = useState<UnitOption[]>([]);
+  const [newCategory, setNewCategory] = useState('');
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  
+  // ── Stock In ──────────────────────────────────────────────────────────────
+  const [stockInOpen, setStockInOpen] = useState(false);
+  const [selectedStockProduct, setSelectedStockProduct] = useState<Product | null>(null);
+  const [stockInData, setStockInData] = useState({
+    quantity: 0,
+    unit_cost: 0,
+    expiration_date: '',
+    location_id: '',
+    product_type: 'S1'
+  });
+  const [locations, setLocations] = useState<Array<{location_id: number; warehouse_name: string}>>([]);
+  const [stockInLoading, setStockInLoading] = useState(false);
 
   // ── Barcode Scanner ───────────────────────────────────────────────────────
   const [scanOpen, setScanOpen]   = useState(false);
@@ -114,7 +178,14 @@ export default function ProductPage() {
 
   useEffect(() => { setCurrentPage(1); }, [search, statusFilter, pageSize, sortKey, sortDir, hideInactive]);
 
-  useEffect(() => { fetchProducts(); fetchSuppliers(); }, []);
+  useEffect(() => { 
+    fetchProducts(); 
+    fetchSuppliers();
+    fetchCategories();
+    fetchUnits();
+    fetchLocations();
+  }, []);
+  
   useEffect(() => { applyFilters(); }, [products, search, statusFilter, sortKey, sortDir, hideInactive]);
 
   // Close dropdowns on outside click
@@ -137,13 +208,182 @@ export default function ProductPage() {
   // Initialize scanner when modal opens and DOM is ready
   useEffect(() => {
     if (scanOpen && !scanError) {
-      // Use a short delay to ensure the DOM node is mounted
       const timer = setTimeout(() => {
         initScanner();
       }, 150);
       return () => clearTimeout(timer);
     }
   }, [scanOpen, scannerReady]);
+
+  // ── Fetch Functions ────────────────────────────────────────────────────────
+  const fetchProducts = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('product')
+      .select(`
+        product_id, product_name, barcode, category, unit, status, date_created, supplier_id,
+        relations!supplier_id(name, relation_type),
+        stock(quantity, unit_cost, expiration_date)
+      `)
+      .order('date_created', { ascending: false });
+    
+    if (!error && data) {
+      const updatedProducts = await Promise.all(
+        (data as unknown as Product[]).map(async (product) => {
+          const newStatus = await checkAndUpdateExpiredStatus(product.product_id, product.status);
+          return { ...product, status: newStatus };
+        })
+      );
+      setProducts(updatedProducts);
+    }
+    setLoading(false);
+  };
+
+  const fetchSuppliers = async () => {
+    const { data } = await supabase
+      .from('relations')
+      .select('relation_id, name')
+      .in('relation_type', ['Supplier', 'Both'])
+      .eq('status', 'Active')
+      .order('name');
+    if (data) setSuppliers(data as RelationOption[]);
+  };
+
+  const fetchCategories = async () => {
+    const { data } = await supabase
+      .from('categories')
+      .select('category_id, category_name')
+      .order('category_name');
+    if (data) setCategories(data);
+  };
+
+  const fetchUnits = async () => {
+    const { data } = await supabase
+      .from('units')
+      .select('unit_id, unit_name, unit_symbol')
+      .order('unit_name');
+    if (data) setUnits(data);
+  };
+
+  const fetchLocations = async () => {
+    const { data } = await supabase
+      .from('location')
+      .select('location_id, warehouse_name')
+      .eq('status', 'Active');
+    if (data) setLocations(data);
+  };
+
+  const addNewCategory = async () => {
+    if (!newCategory.trim()) {
+      setCategoryError('Category name is required');
+      return;
+    }
+    
+    if (categories.length >= MAX_CATEGORIES) {
+      setCategoryError(`Maximum of ${MAX_CATEGORIES} categories reached`);
+      return;
+    }
+    
+    const { data, error } = await supabase
+      .from('categories')
+      .insert([{ category_name: newCategory.trim() }])
+      .select()
+      .single();
+    
+    if (error) {
+      setCategoryError(error.message);
+    } else {
+      setCategories([...categories, data]);
+      setFormData(prev => ({ ...prev, category: data.category_name }));
+      setNewCategory('');
+      setShowAddCategory(false);
+      setCategoryError(null);
+    }
+  };
+
+  const handleStockIn = async () => {
+    if (!selectedStockProduct) return;
+    
+    setStockInLoading(true);
+    setFormError(null);
+    
+    try {
+      const { data: transaction, error: transError } = await supabase
+        .from('transactions')
+        .insert([{
+          type: 'PURCHASE',
+          relation_id: selectedStockProduct.supplier_id,
+          processed_by: 1,
+          reference_no: `PO-${Date.now()}`
+        }])
+        .select()
+        .single();
+      
+      if (transError) throw transError;
+      
+      const { data: stockItem, error: stockError } = await supabase
+        .from('stock')
+        .insert([{
+          product_id: selectedStockProduct.product_id,
+          location_id: stockInData.location_id ? parseInt(stockInData.location_id) : null,
+          product_type: stockInData.product_type,
+          quantity: stockInData.quantity,
+          unit_cost: stockInData.unit_cost,
+          expiration_date: stockInData.expiration_date || null,
+          status: 'Available'
+        }])
+        .select()
+        .single();
+      
+      if (stockError) throw stockError;
+      
+      const { error: itemError } = await supabase
+        .from('transaction_item')
+        .insert([{
+          transaction_id: transaction.transaction_id,
+          stock_id: stockItem.stock_id,
+          movement: 'IN',
+          quantity: stockInData.quantity,
+          price: stockInData.unit_cost,
+          total: stockInData.quantity * stockInData.unit_cost
+        }]);
+      
+      if (itemError) throw itemError;
+      
+      await checkAndUpdateExpiredStatus(selectedStockProduct.product_id, selectedStockProduct.status);
+      await fetchProducts();
+      setStockInOpen(false);
+      setSelectedStockProduct(null);
+      setStockInData({ quantity: 0, unit_cost: 0, expiration_date: '', location_id: '', product_type: 'S1' });
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
+      setStockInLoading(false);
+    }
+  };
+
+  const applyFilters = () => {
+    let result = [...products];
+    if (hideInactive) result = result.filter(p => p.status !== 'Inactive');
+    if (search.trim()) {
+      const s = search.toLowerCase();
+      result = result.filter(p =>
+        p.product_name?.toLowerCase().includes(s) ||
+        p.barcode?.toLowerCase().includes(s) ||
+        p.category?.toLowerCase().includes(s) ||
+        getSupplierName(p)?.toLowerCase().includes(s)
+      );
+    }
+    if (statusFilter !== 'All') result = result.filter(p => p.status === statusFilter);
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'product_name') cmp = (a.product_name ?? '').localeCompare(b.product_name ?? '');
+      else if (sortKey === 'product_id') cmp = a.product_id - b.product_id;
+      else cmp = new Date(a.date_created).getTime() - new Date(b.date_created).getTime();
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    setFiltered(result);
+  };
 
   // ── Scanner helpers ───────────────────────────────────────────────────────
   const destroyScanner = () => {
@@ -189,7 +429,7 @@ export default function ProductPage() {
           rememberLastUsedCamera: true,
           showTorchButtonIfSupported: true,
         },
-        /* verbose= */ false
+        false
       );
 
       scanner.render(
@@ -198,7 +438,6 @@ export default function ProductPage() {
           closeScanner();
         },
         (errorMessage: string) => {
-          // Suppress the common "not found" noise — only surface real errors
           if (
             errorMessage &&
             !errorMessage.includes('NotFoundException') &&
@@ -224,7 +463,6 @@ export default function ProductPage() {
     setScanError(null);
     setScannerReady(false);
     setScanOpen(true);
-    // Flip scannerReady after state settles so the useEffect re-fires
     setTimeout(() => setScannerReady(true), 50);
   };
 
@@ -241,66 +479,21 @@ export default function ProductPage() {
     setTimeout(() => setScannerReady(true), 100);
   };
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────
-  const fetchProducts = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('product')
-      .select(`
-        product_id, product_name, barcode, category, unit, status, date_created, supplier_id,
-        relations!supplier_id(name, relation_type),
-        stock(quantity, unit_cost)
-      `)
-      .order('date_created', { ascending: false });
-    if (!error && data) setProducts(data as unknown as Product[]);
-    setLoading(false);
-  };
-
-  const fetchSuppliers = async () => {
-    const { data } = await supabase
-      .from('relations')
-      .select('relation_id, name')
-      .in('relation_type', ['Supplier', 'Both'])
-      .eq('status', 'Active')
-      .order('name');
-    if (data) setSuppliers(data as RelationOption[]);
-  };
-
-  const applyFilters = () => {
-    let result = [...products];
-    if (hideInactive) result = result.filter(p => p.status !== 'Inactive');
-    if (search.trim()) {
-      const s = search.toLowerCase();
-      result = result.filter(p =>
-        p.product_name?.toLowerCase().includes(s) ||
-        p.barcode?.toLowerCase().includes(s) ||
-        p.category?.toLowerCase().includes(s) ||
-        getSupplierName(p)?.toLowerCase().includes(s)
-      );
-    }
-    if (statusFilter !== 'All') result = result.filter(p => p.status === statusFilter);
-    result.sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === 'product_name') cmp = (a.product_name ?? '').localeCompare(b.product_name ?? '');
-      else if (sortKey === 'product_id') cmp = a.product_id - b.product_id;
-      else cmp = new Date(a.date_created).getTime() - new Date(b.date_created).getTime();
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    setFiltered(result);
-  };
-
   // ── Helpers ───────────────────────────────────────────────────────────────
   const getSupplierName = (p: Product): string | null => {
     if (!p.relations) return null;
     if (Array.isArray(p.relations)) return p.relations[0]?.name ?? null;
     return (p.relations as Supplier).name ?? null;
   };
+  
   const getTotalQty = (p: Product) => p.stock?.reduce((s, r) => s + (r.quantity ?? 0), 0) ?? 0;
-  const getAvgCost  = (p: Product) => {
+  
+  const getAvgCost = (p: Product) => {
     if (!p.stock?.length) return null;
     return p.stock.reduce((s, r) => s + (r.unit_cost ?? 0), 0) / p.stock.length;
   };
-  const formatDate  = (d: string) =>
+  
+  const formatDate = (d: string) =>
     new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const getPageNumbers = (): (number | '...')[] => {
@@ -316,10 +509,10 @@ export default function ProductPage() {
     return pages;
   };
 
-  const totalProducts   = filtered.length;
-  const activeCount     = filtered.filter(p => p.status === 'Active').length;
-  const startItem       = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-  const endItem         = Math.min(currentPage * pageSize, filtered.length);
+  const totalProducts = filtered.length;
+  const activeCount = filtered.filter(p => p.status === 'Active').length;
+  const startItem = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, filtered.length);
 
   const SORT_LABELS: Record<string, string> = {
     'product_name-asc':  'Name A → Z',
@@ -329,29 +522,42 @@ export default function ProductPage() {
     'date_created-desc': 'Date Newest',
     'date_created-asc':  'Date Oldest',
   };
+  
   const applySort = (key: SortKey, dir: SortDir) => { setSortKey(key); setSortDir(dir); setSortOpen(false); };
 
   // ── Form handlers ─────────────────────────────────────────────────────────
   const openAddForm = () => { setFormData(EMPTY_FORM); setEditingId(null); setFormError(null); setFormMode('add'); };
+  
   const openEditForm = (p: Product) => {
-    setFormData({ product_name: p.product_name ?? '', barcode: p.barcode ?? '', category: p.category ?? '',
-      unit: p.unit ?? '', status: p.status ?? 'Active', supplier_id: p.supplier_id?.toString() ?? '' });
+    setFormData({ 
+      product_name: p.product_name ?? '', 
+      barcode: p.barcode ?? '', 
+      category: p.category ?? '',
+      unit: p.unit ?? '', 
+      status: p.status ?? 'Active', 
+      supplier_id: p.supplier_id?.toString() ?? '' 
+    });
     setEditingId(p.product_id);
     setFormError(null);
     setFormMode('edit');
     setSelectedProduct(null);
   };
+  
   const closeForm = () => { setFormMode(null); setFormError(null); };
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  
   const handleFormSubmit = async () => {
     setFormError(null);
     if (!formData.product_name.trim()) { setFormError('Product name is required.'); return; }
     setFormLoading(true);
     const payload = {
-      product_name: formData.product_name.trim(), barcode: formData.barcode.trim() || null,
-      category: formData.category.trim() || null, unit: formData.unit.trim() || null,
-      status: formData.status, supplier_id: formData.supplier_id ? Number(formData.supplier_id) : null,
+      product_name: formData.product_name.trim(), 
+      barcode: formData.barcode.trim() || null,
+      category: formData.category.trim() || null, 
+      unit: formData.unit.trim() || null,
+      status: formData.status, 
+      supplier_id: formData.supplier_id ? Number(formData.supplier_id) : null,
     };
     const { error } = formMode === 'add'
       ? await supabase.from('product').insert([payload])
@@ -388,10 +594,10 @@ export default function ProductPage() {
           });
         }
         const XLSX = (window as any).XLSX;
-        const buf  = await file.arrayBuffer();
-        const wb   = XLSX.read(buf, { type: 'array' });
-        const ws   = wb.Sheets[wb.SheetNames[0]];
-        const raw  = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, unknown>[];
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, unknown>[];
         rows = raw.map(r => {
           const norm: Record<string, string> = {};
           for (const k of Object.keys(r)) norm[k.trim().toLowerCase().replace(/\s+/g, '_')] = String(r[k]).trim();
@@ -402,8 +608,10 @@ export default function ProductPage() {
       for (const row of rows) {
         if (!row.product_name) { fail++; continue; }
         const payload = {
-          product_name: row.product_name, barcode: row.barcode || null,
-          category: row.category || null, unit: row.unit || null,
+          product_name: row.product_name, 
+          barcode: row.barcode || null,
+          category: row.category || null, 
+          unit: row.unit || null,
           status: row.status || 'Active',
           supplier_id: row.supplier_id ? Number(row.supplier_id) : null,
         };
@@ -422,10 +630,17 @@ export default function ProductPage() {
 
   // ── Export helpers ────────────────────────────────────────────────────────
   const exportData = filtered.map(p => ({
-    ID: p.product_id, 'Product Name': p.product_name, Barcode: p.barcode ?? '',
-    Category: p.category ?? '', Unit: p.unit ?? '', Status: p.status,
-    Supplier: getSupplierName(p) ?? '', 'Total Qty': getTotalQty(p),
-    'Avg Cost': getAvgCost(p)?.toFixed(2) ?? '', 'Date Added': p.date_created ? formatDate(p.date_created) : '',
+    ID: p.product_id, 
+    'Product Name': p.product_name, 
+    Barcode: p.barcode ?? '',
+    Category: p.category ?? '', 
+    Unit: p.unit ?? '', 
+    Status: p.status,
+    Supplier: getSupplierName(p) ?? '', 
+    'Total Qty': getTotalQty(p),
+    'Total Value': getTotalStockValue(p.stock).toFixed(2),
+    'Avg Cost': getAvgCost(p)?.toFixed(2) ?? '', 
+    'Date Added': p.date_created ? formatDate(p.date_created) : '',
   }));
 
   const triggerDownload = (name: string, type: string, content: string) => {
@@ -481,10 +696,10 @@ export default function ProductPage() {
     doc.text('Product List', 14, 16);
     doc.setFontSize(9); doc.setTextColor(120, 140, 160);
     doc.text(`Exported: ${new Date().toLocaleString()}   Total: ${filtered.length} products`, 14, 23);
-    const cols = ['ID','Product Name','Barcode','Category','Unit','Status','Supplier','Qty','Avg Cost','Date Added'];
+    const cols = ['ID','Product Name','Barcode','Category','Unit','Status','Supplier','Qty','Total Value','Avg Cost','Date Added'];
     const rows = exportData.map(r => [
       r.ID, r['Product Name'], r.Barcode, r.Category, r.Unit, r.Status,
-      r.Supplier, r['Total Qty'], r['Avg Cost'] ? `₱${r['Avg Cost']}` : '', r['Date Added'],
+      r.Supplier, r['Total Qty'], r['Total Value'], r['Avg Cost'] ? `₱${r['Avg Cost']}` : '', r['Date Added'],
     ]);
     (doc as any).autoTable({
       head: [cols], body: rows, startY: 28,
@@ -611,15 +826,54 @@ export default function ProductPage() {
                 </div>
                 <div className="form-field">
                   <label className="form-label">Category</label>
-                  <input className="form-input" name="category" value={formData.category}
-                    onChange={handleFormChange} placeholder="e.g. Surgical" />
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <select 
+                      className="form-select" 
+                      name="category" 
+                      value={formData.category} 
+                      onChange={handleFormChange}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">— Select Category —</option>
+                      {categories.map(cat => (
+                        <option key={cat.category_id} value={cat.category_name}>{cat.category_name}</option>
+                      ))}
+                    </select>
+                    <button 
+                      type="button" 
+                      className="scan-btn" 
+                      onClick={() => setShowAddCategory(true)}
+                      title="Add new category"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                      </svg>
+                    </button>
+                  </div>
+                  {categories.length >= MAX_CATEGORIES && (
+                    <small style={{ color: '#d97706', fontSize: '0.7rem' }}>
+                      Maximum of {MAX_CATEGORIES} categories reached
+                    </small>
+                  )}
                 </div>
               </div>
               <div className="form-row">
                 <div className="form-field">
                   <label className="form-label">Unit</label>
-                  <input className="form-input" name="unit" value={formData.unit}
-                    onChange={handleFormChange} placeholder="e.g. pcs, box, set" />
+                  <select 
+                    className="form-select" 
+                    name="unit" 
+                    value={formData.unit} 
+                    onChange={handleFormChange}
+                  >
+                    <option value="">— Select Unit —</option>
+                    {units.map(unit => (
+                      <option key={unit.unit_id} value={unit.unit_name}>
+                        {unit.unit_name} {unit.unit_symbol && `(${unit.unit_symbol})`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="form-field">
                   <label className="form-label">Status</label>
@@ -660,6 +914,169 @@ export default function ProductPage() {
         </div>
       )}
 
+      {/* ── ADD CATEGORY MODAL ───────────────────────────────────────────── */}
+      {showAddCategory && (
+        <div className="modal-overlay" onClick={() => setShowAddCategory(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="modal-header">
+              <div className="modal-header-left">
+                <span className="modal-tag">Categories</span>
+                <h2 className="modal-title">Add New Category</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowAddCategory(false)}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="form-body">
+              {categoryError && (
+                <div className="form-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  {categoryError}
+                </div>
+              )}
+              <div className="form-field">
+                <label className="form-label">Category Name *</label>
+                <input 
+                  className="form-input" 
+                  value={newCategory}
+                  onChange={e => setNewCategory(e.target.value)}
+                  placeholder="e.g., Surgical, Diagnostic, PPE"
+                  autoFocus
+                />
+                <small style={{ color: '#7a8fa0' }}>
+                  {categories.length}/{MAX_CATEGORIES} categories used
+                </small>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn-edit" onClick={addNewCategory}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add Category
+              </button>
+              <button className="modal-btn-close" onClick={() => setShowAddCategory(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── STOCK IN MODAL ───────────────────────────────────────────────── */}
+      {stockInOpen && selectedStockProduct && (
+        <div className="modal-overlay" onClick={() => !stockInLoading && setStockInOpen(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-left">
+                <span className="modal-tag">Stock In</span>
+                <h2 className="modal-title">Add Stock: {selectedStockProduct.product_name}</h2>
+              </div>
+              <button className="modal-close" onClick={() => setStockInOpen(false)} disabled={stockInLoading}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="form-body">
+              {formError && (
+                <div className="form-error">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  {formError}
+                </div>
+              )}
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Quantity *</label>
+                  <input 
+                    className="form-input" 
+                    type="number" 
+                    value={stockInData.quantity}
+                    onChange={e => setStockInData(prev => ({ ...prev, quantity: parseInt(e.target.value) || 0 }))}
+                    placeholder="e.g., 100"
+                    disabled={stockInLoading}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Unit Cost (₱) *</label>
+                  <input 
+                    className="form-input" 
+                    type="number" 
+                    step="0.01"
+                    value={stockInData.unit_cost}
+                    onChange={e => setStockInData(prev => ({ ...prev, unit_cost: parseFloat(e.target.value) || 0 }))}
+                    placeholder="e.g., 50.00"
+                    disabled={stockInLoading}
+                  />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Expiration Date</label>
+                  <input 
+                    className="form-input" 
+                    type="date"
+                    value={stockInData.expiration_date}
+                    onChange={e => setStockInData(prev => ({ ...prev, expiration_date: e.target.value }))}
+                    disabled={stockInLoading}
+                  />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Stock Type</label>
+                  <select 
+                    className="form-select"
+                    value={stockInData.product_type}
+                    onChange={e => setStockInData(prev => ({ ...prev, product_type: e.target.value }))}
+                    disabled={stockInLoading}
+                  >
+                    <option value="S1">Standard (S1)</option>
+                    <option value="Bidding">Bidding</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-field">
+                <label className="form-label">Location</label>
+                <select 
+                  className="form-select"
+                  value={stockInData.location_id}
+                  onChange={e => setStockInData(prev => ({ ...prev, location_id: e.target.value }))}
+                  disabled={stockInLoading}
+                >
+                  <option value="">— No Location —</option>
+                  {locations.map(loc => (
+                    <option key={loc.location_id} value={loc.location_id}>{loc.warehouse_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-info">
+                <strong>Total Value:</strong> ₱{(stockInData.quantity * stockInData.unit_cost).toFixed(2)}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="modal-btn-edit" onClick={handleStockIn} disabled={stockInLoading || !stockInData.quantity || !stockInData.unit_cost}>
+                {stockInLoading ? (
+                  <><span className="btn-spinner" />Adding Stock…</>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="12" y1="5" x2="12" y2="19"/>
+                      <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Add Stock
+                  </>
+                )}
+              </button>
+              <button className="modal-btn-close" onClick={() => setStockInOpen(false)} disabled={stockInLoading}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── VIEW MODAL ─────────────────────────────────────────────────── */}
       {selectedProduct && (
         <div className="modal-overlay" onClick={() => setSelectedProduct(null)}>
@@ -691,6 +1108,10 @@ export default function ProductPage() {
                 </span>
               </div>
               <div className="modal-field">
+                <span className="modal-label">Total Value</span>
+                <span className="modal-value bold color-green">₱{getTotalStockValue(selectedProduct.stock).toFixed(2)}</span>
+              </div>
+              <div className="modal-field">
                 <span className="modal-label">Avg Unit Cost</span>
                 <span className="modal-value bold">{getAvgCost(selectedProduct) !== null ? `₱${getAvgCost(selectedProduct)!.toFixed(2)}` : '—'}</span>
               </div>
@@ -705,7 +1126,7 @@ export default function ProductPage() {
                 <div className="modal-stock-table-wrap">
                   <table className="modal-stock-table">
                     <thead>
-                      <tr><th>#</th><th>Quantity</th><th>Unit Cost</th><th>Total Value</th></tr>
+                      <tr><th>#</th><th>Quantity</th><th>Unit Cost</th><th>Total Value</th><th>Expires</th></tr>
                     </thead>
                     <tbody>
                       {selectedProduct.stock.map((s, i) => (
@@ -714,6 +1135,7 @@ export default function ProductPage() {
                           <td><strong>{s.quantity}</strong></td>
                           <td>₱{s.unit_cost?.toFixed(2) ?? '—'}</td>
                           <td>₱{((s.quantity ?? 0) * (s.unit_cost ?? 0)).toFixed(2)}</td>
+                          <td>{s.expiration_date ? new Date(s.expiration_date).toLocaleDateString() : '—'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -736,7 +1158,6 @@ export default function ProductPage() {
       )}
 
       {/* ── SCANNER MODAL ─────────────────────────────────────────────── */}
-      {/* Rendered last so it sits on top of all other modals via z-index  */}
       {scanOpen && (
         <div className="modal-overlay scanner-modal-overlay" onClick={closeScanner}>
           <div className="modal-card scanner-modal-card" onClick={e => e.stopPropagation()}>
@@ -754,7 +1175,6 @@ export default function ProductPage() {
 
             <div className="scanner-body">
               {scanError ? (
-                /* ── Error state ── */
                 <div className="scan-error-box">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="10"/>
@@ -765,16 +1185,10 @@ export default function ProductPage() {
                   <button className="retry-btn" onClick={retryScanner}>Try Again</button>
                 </div>
               ) : (
-                /* ── Scanner mount point ── */
-                // IMPORTANT: No overlay div on top of this — html5-qrcode renders its
-                // own UI (video + canvas + buttons) inside this div. Placing an
-                // absolutely-positioned overlay here blocks pointer events and breaks
-                // the scanner controls.
                 <div className="scanner-viewport">
                   <div id={scannerContainerId} className="scanner-mount" />
                 </div>
               )}
-
               <p className="scanner-hint">
                 Point the camera at a barcode or QR code. It will scan automatically.
               </p>
@@ -790,8 +1204,8 @@ export default function ProductPage() {
       {/* ── HEADER ────────────────────────────────────────────────────── */}
       <div className="product-header">
         <div className="product-header-left">
-          <h1 className="product-title">Product</h1>
-          <p className="product-subtitle">Manage and monitor your inventory</p>
+          <h1 className="product-title">Product Management</h1>
+          <p className="product-subtitle">Manage products, track inventory, and monitor stock levels</p>
         </div>
         <button className="product-refresh-btn" onClick={fetchProducts}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -817,6 +1231,7 @@ export default function ProductPage() {
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
           <option value="Archived">Archived</option>
+          <option value="Expired">Expired</option>
         </select>
 
         {/* Sort dropdown */}
@@ -901,8 +1316,10 @@ export default function ProductPage() {
 
       {/* Stats */}
       <div className="product-stats">
-        <div className="stat-chip"><span className="stat-num">{totalProducts}</span><span className="stat-label">Total</span></div>
+        <div className="stat-chip"><span className="stat-num">{totalProducts}</span><span className="stat-label">Total Products</span></div>
         <div className="stat-chip"><span className="stat-num green">{activeCount}</span><span className="stat-label">Active</span></div>
+        <div className="stat-chip"><span className="stat-num">{filtered.filter(p => p.status === 'Expired').length}</span><span className="stat-label">Expired</span></div>
+        <div className="stat-chip"><span className="stat-num amber">₱{filtered.reduce((sum, p) => sum + getTotalStockValue(p.stock), 0).toFixed(2)}</span><span className="stat-label">Total Value</span></div>
       </div>
 
       {/* Table */}
@@ -923,18 +1340,27 @@ export default function ProductPage() {
               <table className="product-table">
                 <thead>
                   <tr>
-                    <th>#</th><th>Barcode</th><th>Product Name</th>
-                    <th>Category</th><th>Status</th><th>Date Added</th><th>Action</th>
+                    <th>ID</th>
+                    <th>Barcode</th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Total Stock</th>
+                    <th>Total Value</th>
+                    <th>Date Added</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginated.map(p => (
                     <tr key={p.product_id}>
-                      <td className="td-id">{p.product_id}</td>
+                      <td className="td-id">#{p.product_id}</td>
                       <td className="td-mono">{p.barcode ?? '—'}</td>
                       <td className="td-name">{p.product_name}</td>
                       <td>{p.category ?? '—'}</td>
                       <td><span className={`badge ${STATUS_COLORS[p.status] ?? 'badge-gray'}`}>{p.status}</span></td>
+                      <td className="td-stock">{getTotalQty(p)}</td>
+                      <td className="td-value">₱{getTotalStockValue(p.stock).toFixed(2)}</td>
                       <td className="td-date">{p.date_created ? formatDate(p.date_created) : '—'}</td>
                       <td className="td-actions">
                         <button className="icon-btn view" title="View details" onClick={() => setSelectedProduct(p)}>
@@ -946,6 +1372,15 @@ export default function ProductPage() {
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                          </svg>
+                        </button>
+                        <button className="icon-btn stockin-btn" title="Add Stock" onClick={() => {
+                          setSelectedStockProduct(p);
+                          setStockInOpen(true);
+                        }}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
                           </svg>
                         </button>
                       </td>

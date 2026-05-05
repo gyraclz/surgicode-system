@@ -28,16 +28,13 @@ function App() {
     const password = (e.currentTarget.elements.namedItem("password") as HTMLInputElement).value;
 
     try {
-      // Step 1: Get user
+      // Step 1: Get user (include status in the select)
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("user_id, username, full_name, role_id, assigned_type, assigned_location_id")
+        .select("user_id, username, full_name, role_id, assigned_type, assigned_location_id, status")
         .eq("username", username)
         .eq("password_hash", password)
         .single();
-
-      console.log('userData:', userData);
-      console.log('userError:', userError);
 
       if (userError || !userData) {
         setError('Invalid username or password.');
@@ -45,15 +42,19 @@ function App() {
         return;
       }
 
-      // Step 2: Get role separately
+      // Step 2: Block inactive users before anything else
+      if (userData.status === 'Inactive') {
+        setError('Your account has been deactivated. Please contact your administrator.');
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: Get role separately
       const { data: roleData, error: roleError } = await supabase
         .from("role")
         .select("role_name, can_edit")
         .eq("role_id", userData.role_id)
         .single();
-
-      console.log('roleData:', roleData);
-      console.log('roleError:', roleError);
 
       if (roleError || !roleData) {
         setError('User role not found. Please contact your administrator.');
@@ -61,18 +62,25 @@ function App() {
         return;
       }
 
-      // Step 3: Build and store user
+      // Step 4: Log the LOGIN event to audit_log
+      await supabase.from('audit_log').insert([{
+        user_id:    userData.user_id,
+        action:     'LOGIN',
+        table_name: 'users',
+        record_id:  userData.user_id,
+        description: `LOGIN — ${userData.full_name} (@${userData.username}) signed in`,
+      }]);
+
+      // Step 5: Build and store user
       const loggedInUser = {
-        user_id: userData.user_id,
-        username: userData.username,
-        full_name: userData.full_name,
-        role_name: roleData.role_name,
-        can_edit: roleData.can_edit,
-        assigned_type: userData.assigned_type,
+        user_id:              userData.user_id,
+        username:             userData.username,
+        full_name:            userData.full_name,
+        role_name:            roleData.role_name,
+        can_edit:             roleData.can_edit,
+        assigned_type:        userData.assigned_type,
         assigned_location_id: userData.assigned_location_id,
       };
-
-      console.log('loggedInUser:', loggedInUser);
 
       setUser(loggedInUser);
       navigate('/admin-dashboard');

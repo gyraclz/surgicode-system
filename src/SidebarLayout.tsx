@@ -43,7 +43,8 @@ const navItems = [
         <polyline points="17 6 23 6 23 12"/>
       </svg>
     ),
-  }, {
+  },
+  {
     path: '/audit-log',
     label: 'Audit Log',
     icon: (
@@ -55,6 +56,7 @@ const navItems = [
         <polyline points="10 9 9 9 8 9"/>
       </svg>
     ),
+    adminOnly: true, // Add flag
   },
   {
     path: '/user',
@@ -67,6 +69,7 @@ const navItems = [
         <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
     ),
+    adminOnly: true, // Add flag
   },
   {
     path: '/warehouse',
@@ -99,6 +102,14 @@ function SidebarLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const isActive = (path: string) => location.pathname === path;
+  
+  // Check if user has Admin role
+  const isAdmin = user?.role_name?.toLowerCase() === 'admin';
+
+  // Filter nav items based on user role
+  const visibleNavItems = navItems.filter(item => 
+    !item.adminOnly || (item.adminOnly && isAdmin)
+  );
 
   return (
     <div className="layout-container">
@@ -132,7 +143,7 @@ function SidebarLayout() {
 
         {/* Nav links */}
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}

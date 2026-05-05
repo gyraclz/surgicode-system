@@ -252,3 +252,21 @@ body {
 button {
   touch-action: manipulation;
 }
+/* Field-level inline error */
+.field-error-msg {
+  display: block;
+  font-size: 11.5px;
+  color: #e53e3e;
+  margin-top: 4px;
+}
+
+.form-input.input-error {
+  border-color: #e53e3e;
+  background: #fff5f5;
+}
+
+/* Warning hint (used for Inactive status notice) */
+.form-hint-text.warning {
+  color: #d97706;
+  font-weight: 500;
+}

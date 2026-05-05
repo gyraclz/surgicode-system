@@ -1095,3 +1095,66 @@
     .stat-num { font-size: 0.95rem; }
     .stat-label { font-size: 0.72rem; }
   }
+
+  /* Add these to your existing CSS file */
+
+/* Expired status badge */
+.badge-expired {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+/* Stock value styling */
+.td-stock {
+  font-weight: 600;
+  color: #1B3C53;
+}
+
+.td-value {
+  font-weight: 600;
+  color: #10b981;
+}
+
+/* Stock In button */
+.stockin-btn {
+  background: #10b981 !important;
+  color: white !important;
+}
+
+.stockin-btn:hover {
+  background: #059669 !important;
+}
+
+/* Form info box */
+.form-info {
+  background: #eef2ff;
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+  font-size: 0.9rem;
+  color: #1B3C53;
+  margin-top: 8px;
+}
+
+/* Stock breakdown table enhancements */
+.modal-stock-table td:last-child {
+  font-size: 0.75rem;
+  color: #7a8fa0;
+}
+
+/* Responsive adjustments for new columns */
+@media (max-width: 768px) {
+  .product-table th:nth-child(6),
+  .product-table td:nth-child(6),
+  .product-table th:nth-child(7),
+  .product-table td:nth-child(7) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .product-table th:nth-child(4),
+  .product-table td:nth-child(4) {
+    display: none;
+  }
+}

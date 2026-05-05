@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import './ViewStockPage.css';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -117,6 +118,30 @@ const fefoSort = (a: StockRow, b: StockRow) => {
   return new Date(a.expiration_date).getTime() - new Date(b.expiration_date).getTime();
 };
 
+// Function to update stock status based on quantity
+const updateStockStatus = async (stockId: number, quantity: number, currentStatus: string) => {
+  let newStatus = currentStatus;
+  
+  if (quantity === 0) {
+    newStatus = 'Out of Stock';
+  } else if (quantity > 0 && currentStatus === 'Out of Stock') {
+    newStatus = 'Available';
+  }
+  
+  if (newStatus !== currentStatus) {
+    const { error } = await supabase
+      .from('stock')
+      .update({ status: newStatus })
+      .eq('stock_id', stockId);
+    
+    if (error) {
+      console.error('Error updating stock status:', error);
+    }
+  }
+  
+  return newStatus;
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function ViewStockPage() {
   const { user: authUser } = useAuth();
@@ -137,7 +162,6 @@ export default function ViewStockPage() {
     canOnlySalesOut: false,
     canDoStockIn: false,
     canDoTransfer: false,
-    canDoReturn: false,
   });
 
   // ── Filters / Sort ───────────────────────────────────────────────────────────
@@ -172,7 +196,7 @@ export default function ViewStockPage() {
   const [editError, setEditError] = useState<string | null>(null);
 
   // Transaction modal
-  const [transactionMode, setTransactionMode] = useState<'IN' | 'OUT' | 'TRANSFER' | 'RETURN' | null>(null);
+  const [transactionMode, setTransactionMode] = useState<'IN' | 'OUT' | 'TRANSFER' | null>(null);
   const [transactionItems, setTransactionItems] = useState<TransactionItem[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [sourceLocationId, setSourceLocationId] = useState('');
@@ -192,22 +216,12 @@ export default function ViewStockPage() {
   const [addItemPrice, setAddItemPrice] = useState('');
   const [addItemExpiry, setAddItemExpiry] = useState('');
 
-  // Invoice modal
-  const [showInvoice, setShowInvoice] = useState(false);
-  const [invoiceItems, setInvoiceItems] = useState<TransactionItem[]>([]);
-  const [invoiceCustomerId, setInvoiceCustomerId] = useState('');
-  const [invoiceRef, setInvoiceRef] = useState('');
-  const [invoiceLoading, setInvoiceLoading] = useState(false);
-  const [invoiceError, setInvoiceError] = useState<string | null>(null);
-  const [invoiceSuccess, setInvoiceSuccess] = useState<string | null>(null);
-
-  // Add to invoice sub-modal
-  const [showAddInvoiceItem, setShowAddInvoiceItem] = useState(false);
-  const [invoiceSelectedProductId, setInvoiceSelectedProductId] = useState('');
-  const [invoiceSelectedProductStock, setInvoiceSelectedProductStock] = useState<StockRow[]>([]);
-  const [invoiceSelectedBatchId, setInvoiceSelectedBatchId] = useState('');
-  const [addInvoiceQty, setAddInvoiceQty] = useState('');
-  const [addInvoicePrice, setAddInvoicePrice] = useState('');
+  // Barcode Scanner for Add Item
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scannerReady, setScannerReady] = useState(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerContainerId = 'stock-scanner-mount';
 
   // Relations
   const [suppliers, setSuppliers] = useState<Relation[]>([]);
@@ -235,6 +249,144 @@ export default function ViewStockPage() {
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
+
+  // Cleanup scanner on unmount
+  useEffect(() => {
+    return () => {
+      destroyScanner();
+    };
+  }, []);
+
+  // Initialize scanner when modal opens
+  useEffect(() => {
+    if (scanOpen && !scanError) {
+      const timer = setTimeout(() => {
+        initScanner();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [scanOpen, scannerReady]);
+
+  // ── Scanner helpers ───────────────────────────────────────────────────────
+  const destroyScanner = () => {
+    if (scannerRef.current) {
+      try {
+        scannerRef.current.clear();
+      } catch (_) {
+        // ignore errors during cleanup
+      }
+      scannerRef.current = null;
+    }
+  };
+
+  const initScanner = () => {
+    const el = document.getElementById(scannerContainerId);
+    if (!el) {
+      setScanError('Scanner container could not be found. Please try again.');
+      return;
+    }
+
+    destroyScanner();
+
+    try {
+      const scanner = new Html5QrcodeScanner(
+        scannerContainerId,
+        {
+          fps: 10,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.floor(minEdge * 0.7);
+            return { width: size, height: Math.floor(size * 0.6) };
+          },
+          aspectRatio: window.innerWidth <= 480 ? 1.0 : 1.333,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+          ],
+          rememberLastUsedCamera: true,
+          showTorchButtonIfSupported: true,
+        },
+        false
+      );
+
+      scanner.render(
+        async (decodedText: string) => {
+          // Find product by barcode
+          const product = products.find(p => p.barcode === decodedText);
+          
+          if (product) {
+            // Set the product selection
+            setSelectedProductId(String(product.product_id));
+            
+            // If transaction mode is IN, just set the product
+            if (transactionMode === 'IN') {
+              setSelectedProductStock([]);
+              setSelectedBatchId('');
+              setAddItemQty('');
+              const defaultPrice = 0;
+              setAddItemPrice(String(defaultPrice));
+            } else {
+              // For OUT and TRANSFER, load available batches
+              const batches = getAvailableBatchesForProduct(product.product_id, transactionMode === 'TRANSFER' ? sourceLocationId : undefined);
+              setSelectedProductStock(batches);
+              setSelectedBatchId('');
+              setAddItemQty('');
+              const defaultPrice = batches.length > 0 ? batches[0].unit_cost : 0;
+              setAddItemPrice(String(defaultPrice));
+            }
+            
+            closeScanner();
+          } else {
+            setScanError(`Product with barcode "${decodedText}" not found.`);
+            setTimeout(() => setScanError(null), 3000);
+          }
+        },
+        (errorMessage: string) => {
+          if (
+            errorMessage &&
+            !errorMessage.includes('NotFoundException') &&
+            !errorMessage.includes('No MultiFormat Readers')
+          ) {
+            console.debug('Scan decode error:', errorMessage);
+          }
+        }
+      );
+
+      scannerRef.current = scanner;
+    } catch (err: any) {
+      console.error('Scanner init error:', err);
+      setScanError(
+        err?.message?.includes('permission') || err?.message?.includes('Permission')
+          ? 'Camera permission was denied. Please allow camera access and try again.'
+          : err?.message || 'Failed to start the scanner. Please try again.'
+      );
+    }
+  };
+
+  const openScanner = () => {
+    setScanError(null);
+    setScannerReady(false);
+    setScanOpen(true);
+    setTimeout(() => setScannerReady(true), 50);
+  };
+
+  const closeScanner = () => {
+    destroyScanner();
+    setScanOpen(false);
+    setScanError(null);
+    setScannerReady(false);
+  };
+
+  const retryScanner = () => {
+    setScanError(null);
+    setScannerReady(false);
+    setTimeout(() => setScannerReady(true), 100);
+  };
 
   // ── Load permissions from AuthContext user ────────────────────────────────────
   const loadUserPermissions = async (savedUser: any) => {
@@ -290,8 +442,7 @@ export default function ViewStockPage() {
         allowedLocationId: null, 
         canOnlySalesOut: false, 
         canDoStockIn: true, 
-        canDoTransfer: true, 
-        canDoReturn: true 
+        canDoTransfer: true,
       });
     } 
     else if (roleName === 'Manager') {
@@ -301,8 +452,7 @@ export default function ViewStockPage() {
         allowedLocationId: null, 
         canOnlySalesOut: false, 
         canDoStockIn: true, 
-        canDoTransfer: true, 
-        canDoReturn: true 
+        canDoTransfer: true,
       });
     } 
     else if (roleName === 'Warehouse') {
@@ -312,8 +462,7 @@ export default function ViewStockPage() {
         allowedLocationId: assignedLocationId, 
         canOnlySalesOut: false, 
         canDoStockIn: true, 
-        canDoTransfer: true, 
-        canDoReturn: true 
+        canDoTransfer: true,
       });
     } 
     else if (roleName === 'Sales') {
@@ -323,8 +472,7 @@ export default function ViewStockPage() {
         allowedLocationId: null, 
         canOnlySalesOut: true, 
         canDoStockIn: false, 
-        canDoTransfer: false, 
-        canDoReturn: true 
+        canDoTransfer: false,
       });
     } 
     else {
@@ -334,8 +482,7 @@ export default function ViewStockPage() {
         allowedLocationId: null, 
         canOnlySalesOut: false, 
         canDoStockIn: false, 
-        canDoTransfer: false, 
-        canDoReturn: false 
+        canDoTransfer: false,
       });
     }
   };
@@ -366,7 +513,15 @@ export default function ViewStockPage() {
     const { data, error } = await query.order('date_created', { ascending: false });
     
     if (!error && data) {
-      setStocks(data as unknown as StockRow[]);
+      const stocksData = data as unknown as StockRow[];
+      // Ensure statuses are correct based on quantity
+      const updatedStocks = await Promise.all(
+        stocksData.map(async (stock) => {
+          const newStatus = await updateStockStatus(stock.stock_id, stock.quantity, stock.status);
+          return { ...stock, status: newStatus };
+        })
+      );
+      setStocks(updatedStocks);
     } else if (error) {
       console.error('Error fetching stocks:', error);
     }
@@ -500,13 +655,18 @@ export default function ViewStockPage() {
   const handleEditSave = async () => {
     if (!editStock) return;
     setEditLoading(true); setEditError(null);
+    
+    const newQuantity = Number(editForm.quantity);
+    const newStatus = newQuantity === 0 ? 'Out of Stock' : (newQuantity > 0 && editStock.status === 'Out of Stock' ? 'Available' : editForm.status);
+    
     const { error } = await supabase.from('stock').update({
-      quantity: Number(editForm.quantity),
+      quantity: newQuantity,
       unit_cost: Number(editForm.unit_cost),
       product_type: editForm.product_type || null,
       expiration_date: editForm.expiration_date || null,
-      status: editForm.status,
+      status: newStatus,
     }).eq('stock_id', editStock.stock_id);
+    
     setEditLoading(false);
     if (error) { setEditError(error.message); return; }
     setEditStock(null);
@@ -523,7 +683,7 @@ export default function ViewStockPage() {
   };
 
   // ── Transaction ───────────────────────────────────────────────────────────────
-  const openTransaction = (mode: 'IN' | 'OUT' | 'TRANSFER' | 'RETURN') => {
+  const openTransaction = (mode: 'IN' | 'OUT' | 'TRANSFER') => {
     if (mode === 'IN' && !permissions.canDoStockIn) {
       showGlobalSuccess('You do not have permission to do Stock In');
       return;
@@ -545,12 +705,12 @@ export default function ViewStockPage() {
   };
 
   // Get available batches for a product based on filters
-  const getAvailableBatchesForProduct = (productId: number) => {
+  const getAvailableBatchesForProduct = (productId: number, sourceLocId?: string) => {
     let batches = stocks.filter(s => s.product_id === productId && s.quantity > 0 && s.status !== 'Out of Stock');
     
     // For TRANSFER mode, filter by source location
-    if (transactionMode === 'TRANSFER' && sourceLocationId) {
-      batches = batches.filter(s => s.location_id === Number(sourceLocationId));
+    if (transactionMode === 'TRANSFER' && sourceLocId) {
+      batches = batches.filter(s => s.location_id === Number(sourceLocId));
     }
     
     return batches.sort(fefoSort);
@@ -560,15 +720,12 @@ export default function ViewStockPage() {
   const handleProductSelect = (productId: string) => {
     setSelectedProductId(productId);
     
-    // For Stock In or Return, we don't need to show batches
-    if (transactionMode === 'IN' || transactionMode === 'RETURN') {
+    // For Stock In, we don't need to show batches
+    if (transactionMode === 'IN') {
       setSelectedProductStock([]);
       setSelectedBatchId('');
       setAddItemQty('');
-      const product = products.find(p => p.product_id === Number(productId));
-      if (product) {
-        setAddItemPrice(''); // Let user enter price
-      }
+      setAddItemPrice('');
       return;
     }
     
@@ -594,8 +751,8 @@ export default function ViewStockPage() {
   };
 
   const confirmAddItem = () => {
-    // For Stock In or Return, we don't need an existing batch
-    if (transactionMode === 'IN' || transactionMode === 'RETURN') {
+    // For Stock In, we don't need an existing batch
+    if (transactionMode === 'IN') {
       if (!selectedProductId) {
         setTransactionError('Please select a product.');
         return;
@@ -619,8 +776,7 @@ export default function ViewStockPage() {
         return;
       }
       
-      // For Stock In, we create a temporary item without a stock_id (will be created in transaction)
-      const tempId = -Date.now(); // Temporary negative ID for new items
+      const tempId = -Date.now();
       setTransactionItems(prev => [...prev, { 
         stock_id: tempId,
         product_id: product.product_id,
@@ -630,12 +786,11 @@ export default function ViewStockPage() {
         price: price, 
         total: qty * price, 
         expiration_date: addItemExpiry || null, 
-        availableQuantity: 999999, // No limit for new stock
+        availableQuantity: 999999,
         location_label: 'New Stock',
         isNewStock: true
       }]);
       
-      // Reset form
       setSelectedProductId('');
       setAddItemQty('');
       setAddItemPrice('');
@@ -694,7 +849,6 @@ export default function ViewStockPage() {
       }]);
     }
     
-    // Reset form
     setSelectedProductId('');
     setSelectedProductStock([]);
     setSelectedBatchId('');
@@ -715,11 +869,11 @@ export default function ViewStockPage() {
 
   const submitTransaction = async () => {
     if (transactionItems.length === 0) { setTransactionError('Add at least one item.'); return; }
-    if ((transactionMode === 'IN' || transactionMode === 'RETURN') && !selectedLocationId) { setTransactionError('Select a destination location.'); return; }
+    if (transactionMode === 'IN' && !selectedLocationId) { setTransactionError('Select a destination location.'); return; }
     if (transactionMode === 'TRANSFER' && (!sourceLocationId || !targetLocationId)) { setTransactionError('Select source and destination locations.'); return; }
 
     setTransactionLoading(true); setTransactionError(null);
-    const txType = transactionMode === 'IN' ? 'PURCHASE' : transactionMode === 'OUT' ? 'SALE' : transactionMode === 'TRANSFER' ? 'TRANSFER' : 'RETURN';
+    const txType = transactionMode === 'IN' ? 'PURCHASE' : transactionMode === 'OUT' ? 'SALE' : 'TRANSFER';
 
     const { data: txn, error: txnErr } = await supabase.from('transactions')
       .insert([{ type: txType, relation_id: selectedRelationId ? Number(selectedRelationId) : null, processed_by: currentUser?.user_id ?? null, reference_no: referenceNo || null }])
@@ -731,8 +885,7 @@ export default function ViewStockPage() {
     for (const item of transactionItems) {
       let stockId = item.stock_id;
 
-      if (transactionMode === 'IN' || transactionMode === 'RETURN') {
-        // For new items (temp negative ID), create new stock
+      if (transactionMode === 'IN') {
         if (item.isNewStock || item.stock_id < 0) {
           const { data: ns, error: nsErr } = await supabase.from('stock')
             .insert([{ 
@@ -752,7 +905,6 @@ export default function ViewStockPage() {
           }
           stockId = ns.stock_id;
         } else {
-          // Update existing stock
           const { data: ns, error: nsErr } = await supabase.from('stock')
             .insert([{ 
               product_id: item.product_id, 
@@ -772,8 +924,7 @@ export default function ViewStockPage() {
           stockId = ns.stock_id;
         }
 
-        const movement = 'IN';
-        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: stockId, movement, quantity: item.quantity, price: item.price, total: item.total }]);
+        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: stockId, movement: 'IN', quantity: item.quantity, price: item.price, total: item.total }]);
         if (itemErr) { setTransactionError(itemErr.message); hasError = true; break; }
       } 
       else if (transactionMode === 'TRANSFER') {
@@ -788,11 +939,24 @@ export default function ViewStockPage() {
 
         const { error: inErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: ns.stock_id, movement: 'IN', quantity: item.quantity, price: item.price, total: item.total }]);
         if (inErr) { setTransactionError(inErr.message); hasError = true; break; }
+        
+        // Update source stock status after transfer
+        const sourceStock = stocks.find(s => s.stock_id === item.stock_id);
+        if (sourceStock) {
+          const newSourceQty = sourceStock.quantity - item.quantity;
+          await updateStockStatus(item.stock_id, newSourceQty, sourceStock.status);
+        }
       } 
       else if (transactionMode === 'OUT') {
-        const movement = 'OUT';
-        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: item.stock_id, movement, quantity: item.quantity, price: item.price, total: item.total }]);
+        const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: item.stock_id, movement: 'OUT', quantity: item.quantity, price: item.price, total: item.total }]);
         if (itemErr) { setTransactionError(itemErr.message.includes('Not enough') ? `Not enough stock for ${item.product_name}.` : itemErr.message); hasError = true; break; }
+        
+        // Update stock status after OUT transaction
+        const stock = stocks.find(s => s.stock_id === item.stock_id);
+        if (stock) {
+          const newQty = stock.quantity - item.quantity;
+          await updateStockStatus(item.stock_id, newQty, stock.status);
+        }
       }
     }
 
@@ -801,212 +965,6 @@ export default function ViewStockPage() {
       setTransactionSuccess(`${transactionMode} completed successfully!`);
       fetchAll();
       setTimeout(() => { setTransactionMode(null); setTransactionSuccess(null); showGlobalSuccess(`${transactionMode} transaction saved!`); }, 1800);
-    }
-  };
-
-  // ── Invoice ───────────────────────────────────────────────────────────────────
-  const openInvoice = () => {
-    setShowInvoice(true);
-    setInvoiceItems([]);
-    setInvoiceCustomerId('');
-    setInvoiceRef('');
-    setInvoiceError(null);
-    setInvoiceSuccess(null);
-  };
-
-  const getInvoiceAvailableBatches = (productId: number) => {
-    return stocks.filter(s => s.product_id === productId && s.quantity > 0 && s.status !== 'Out of Stock').sort(fefoSort);
-  };
-
-  const handleInvoiceProductSelect = (productId: string) => {
-    setInvoiceSelectedProductId(productId);
-    const batches = getInvoiceAvailableBatches(Number(productId));
-    setInvoiceSelectedProductStock(batches);
-    setInvoiceSelectedBatchId('');
-    setAddInvoiceQty('');
-    const product = products.find(p => p.product_id === Number(productId));
-    if (product && batches.length > 0) {
-      setAddInvoicePrice(String(batches[0].unit_cost));
-    }
-  };
-
-  const handleInvoiceBatchSelect = (batchId: string) => {
-    setInvoiceSelectedBatchId(batchId);
-    const batch = invoiceSelectedProductStock.find(b => b.stock_id === Number(batchId));
-    if (batch) {
-      setAddInvoicePrice(String(batch.unit_cost));
-    }
-  };
-
-  const openAddInvoiceItem = () => {
-    setInvoiceSelectedProductId('');
-    setInvoiceSelectedProductStock([]);
-    setInvoiceSelectedBatchId('');
-    setAddInvoiceQty('');
-    setAddInvoicePrice('');
-    setShowAddInvoiceItem(true);
-  };
-
-  const confirmAddInvoiceItem = () => {
-    if (!invoiceSelectedBatchId) {
-      setInvoiceError('Please select a batch.');
-      return;
-    }
-    
-    const batch = invoiceSelectedProductStock.find(b => b.stock_id === Number(invoiceSelectedBatchId));
-    if (!batch) {
-      setInvoiceError('Batch not found.');
-      return;
-    }
-    
-    const qty = Number(addInvoiceQty);
-    const price = Number(addInvoicePrice);
-    
-    if (!qty || qty <= 0) { 
-      setInvoiceError('Enter a valid quantity.'); 
-      return; 
-    }
-    if (qty > batch.quantity) { 
-      setInvoiceError(`Not enough stock. Available: ${batch.quantity}`); 
-      return; 
-    }
-    
-    const existing = invoiceItems.findIndex(i => i.stock_id === batch.stock_id);
-    if (existing >= 0) {
-      const newQty = invoiceItems[existing].quantity + qty;
-      if (newQty > batch.quantity) { 
-        setInvoiceError(`Total would exceed available stock (${batch.quantity}).`); 
-        return; 
-      }
-      setInvoiceItems(prev => prev.map((i, idx) => idx === existing ? { ...i, quantity: newQty, total: newQty * i.price } : i));
-    } else {
-      setInvoiceItems(prev => [...prev, { 
-        stock_id: batch.stock_id, 
-        product_id: batch.product_id,
-        product_name: batch.product?.product_name ?? 'Unknown', 
-        barcode: batch.product?.barcode ?? null,
-        quantity: qty, 
-        price, 
-        total: qty * price, 
-        expiration_date: batch.expiration_date, 
-        availableQuantity: batch.quantity,
-        isNewStock: false
-      }]);
-    }
-    
-    setInvoiceSelectedProductId('');
-    setInvoiceSelectedProductStock([]);
-    setInvoiceSelectedBatchId('');
-    setAddInvoiceQty('');
-    setShowAddInvoiceItem(false);
-    setInvoiceError(null);
-  };
-
-  const updateInvoiceItem = (stockId: number, qty: number, price: number) => {
-    const avail = invoiceItems.find(i => i.stock_id === stockId)?.availableQuantity ?? 0;
-    if (qty > avail) { setInvoiceError(`Not enough stock. Available: ${avail}`); return; }
-    setInvoiceItems(prev => prev.map(i => i.stock_id === stockId ? { ...i, quantity: qty, price, total: qty * price } : i));
-    setInvoiceError(null);
-  };
-
-  const invoiceTotal = invoiceItems.reduce((s, i) => s + i.total, 0);
-
-  const generateInvoicePDF = async (refNo: string) => {
-    if (!(window as any).jspdf) {
-      await new Promise<void>((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-        s.onload = () => res(); s.onerror = () => rej();
-        document.head.appendChild(s);
-      });
-    }
-    if (!(window as any).jspdfAutoTable) {
-      await new Promise<void>((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
-        s.onload = () => res(); s.onerror = () => rej();
-        document.head.appendChild(s);
-      });
-    }
-    const { jsPDF } = (window as any).jspdf;
-    const doc = new jsPDF();
-    const customer = customers.find(c => c.relation_id === Number(invoiceCustomerId));
-    const now = new Date();
-
-    doc.setFillColor(27, 60, 83);
-    doc.rect(0, 0, 210, 38, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22); doc.setFont('helvetica', 'bold');
-    doc.text('INVOICE', 14, 20);
-    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-    doc.text(`Ref: ${refNo}`, 14, 30);
-    doc.text(`Date: ${now.toLocaleDateString()}`, 120, 20);
-    doc.text(`SurgiCode Trading Corporation`, 120, 28);
-
-    doc.setTextColor(60, 60, 60);
-    doc.setFontSize(9); doc.setFont('helvetica', 'bold');
-    doc.text('CUSTOMER', 14, 48);
-    doc.setFont('helvetica', 'normal');
-    doc.text(customer?.name ?? '—', 14, 55);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PROCESSED BY', 120, 48);
-    doc.setFont('helvetica', 'normal');
-    doc.text(currentUser?.full_name ?? '—', 120, 55);
-
-    const rows = invoiceItems.map((item, i) => [
-      i + 1, item.product_name, item.barcode ?? '—',
-      item.expiration_date ? formatDate(item.expiration_date) : '—',
-      item.quantity, `₱${item.price.toFixed(2)}`, `₱${item.total.toFixed(2)}`,
-    ]);
-
-    (doc as any).autoTable({
-      startY: 65,
-      head: [['#', 'Product', 'Barcode', 'Expiry', 'Qty', 'Unit Price', 'Total']],
-      body: rows,
-      styles: { fontSize: 9, cellPadding: 4 },
-      headStyles: { fillColor: [27, 60, 83], textColor: 255, fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [244, 247, 250] },
-      columnStyles: { 0: { cellWidth: 10 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
-      margin: { left: 14, right: 14 },
-    });
-
-    const finalY = (doc as any).lastAutoTable.finalY + 8;
-    doc.setFillColor(27, 60, 83);
-    doc.rect(120, finalY, 76, 12, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-    doc.text('GRAND TOTAL', 124, finalY + 8);
-    doc.text(`₱${invoiceTotal.toFixed(2)}`, 190, finalY + 8, { align: 'right' });
-
-    doc.setTextColor(150, 160, 170);
-    doc.setFontSize(7); doc.setFont('helvetica', 'normal');
-    doc.text('Thank you for your business.', 14, 285);
-    doc.text(`Generated: ${now.toLocaleString()}`, 14, 289);
-    doc.save(`invoice-${refNo}.pdf`);
-  };
-
-  const createInvoice = async () => {
-    if (invoiceItems.length === 0) { setInvoiceError('Add at least one item.'); return; }
-    if (!invoiceCustomerId) { setInvoiceError('Select a customer.'); return; }
-    setInvoiceLoading(true); setInvoiceError(null);
-    const refNo = invoiceRef || `INV-${Date.now()}`;
-    const { data: txn, error: txnErr } = await supabase.from('transactions')
-      .insert([{ type: 'SALE', relation_id: Number(invoiceCustomerId), processed_by: currentUser?.user_id ?? null, reference_no: refNo }])
-      .select('transaction_id').single();
-    if (txnErr || !txn) { setInvoiceError(txnErr?.message ?? 'Failed to create invoice.'); setInvoiceLoading(false); return; }
-
-    let hasError = false;
-    for (const item of invoiceItems) {
-      const { error: itemErr } = await supabase.from('transaction_item').insert([{ transaction_id: txn.transaction_id, stock_id: item.stock_id, movement: 'OUT', quantity: item.quantity, price: item.price, total: item.total }]);
-      if (itemErr) { setInvoiceError(`Error on ${item.product_name}: ${itemErr.message}`); hasError = true; break; }
-    }
-
-    setInvoiceLoading(false);
-    if (!hasError) {
-      await generateInvoicePDF(refNo);
-      setInvoiceSuccess('Invoice created and PDF downloaded!');
-      fetchAll();
-      setTimeout(() => { setShowInvoice(false); setInvoiceSuccess(null); showGlobalSuccess('Invoice created!'); }, 2000);
     }
   };
 
@@ -1217,9 +1175,47 @@ export default function ViewStockPage() {
             </div>
             <div className="modal-body">
               <div className="form-fields">
-                {/* Step 1: Select Product from PRODUCTS table (unique) */}
+                {/* Scan Button at the top */}
                 <div className="form-group">
-                  <label>Select Product <span className="required">*</span></label>
+                  <button 
+                    type="button" 
+                    className="scan-btn-full" 
+                    onClick={openScanner}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      background: 'linear-gradient(135deg, #1B3C53 0%, #2a5a7a 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
+                      marginBottom: '16px'
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 20, height: 20 }}>
+                      <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+                      <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+                      <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+                      <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                      <rect x="7" y="7" width="3" height="3"/>
+                      <rect x="14" y="7" width="3" height="3"/>
+                      <rect x="7" y="14" width="3" height="3"/>
+                      <line x1="14" y1="14" x2="17" y2="14"/>
+                      <line x1="17" y1="14" x2="17" y2="17"/>
+                      <line x1="14" y1="17" x2="14" y2="17"/>
+                    </svg>
+                    Scan Barcode / QR Code
+                  </button>
+                </div>
+
+                <div className="form-group">
+                  <label>Or Select Product <span className="required">*</span></label>
                   <select 
                     value={selectedProductId} 
                     onChange={e => handleProductSelect(e.target.value)}
@@ -1233,8 +1229,8 @@ export default function ViewStockPage() {
                   </select>
                 </div>
 
-                {/* For Stock In/Return: No batch selection needed */}
-                {(transactionMode === 'IN' || transactionMode === 'RETURN') && selectedProductId && (
+                {/* For Stock In: No batch selection needed */}
+                {transactionMode === 'IN' && selectedProductId && (
                   <>
                     <div className="form-row-2">
                       <div className="form-group">
@@ -1265,7 +1261,7 @@ export default function ViewStockPage() {
                   </>
                 )}
 
-                {/* For OUT/TRANSFER: Show batch selection with tray details */}
+                {/* For OUT/TRANSFER: Show batch selection */}
                 {(transactionMode === 'OUT' || transactionMode === 'TRANSFER') && selectedProductId && selectedProductStock.length > 0 && (
                   <div className="form-group">
                     <label>Select Batch (FEFO) <span className="required">*</span></label>
@@ -1327,11 +1323,55 @@ export default function ViewStockPage() {
                   !selectedProductId || 
                   !addItemQty || 
                   ((transactionMode === 'OUT' || transactionMode === 'TRANSFER') && !selectedBatchId) ||
-                  ((transactionMode === 'IN' || transactionMode === 'RETURN') && !addItemPrice)
+                  (transactionMode === 'IN' && !addItemPrice)
                 }
               >
                 Add to List
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ SCANNER MODAL ════════════════════════════════════════════════════ */}
+      {scanOpen && (
+        <div className="modal-overlay scanner-modal-overlay" onClick={closeScanner}>
+          <div className="modal-card scanner-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-header-left">
+                <span className="modal-tag">Barcode / QR Scanner</span>
+                <h2 className="modal-title">Scan Product Barcode</h2>
+              </div>
+              <button className="modal-close" onClick={closeScanner}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            <div className="scanner-body">
+              {scanError ? (
+                <div className="scan-error-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <p>{scanError}</p>
+                  <button className="retry-btn" onClick={retryScanner}>Try Again</button>
+                </div>
+              ) : (
+                <div className="scanner-viewport">
+                  <div id={scannerContainerId} className="scanner-mount" />
+                </div>
+              )}
+              <p className="scanner-hint">
+                Point the camera at a product barcode or QR code to automatically add it to the transaction.
+              </p>
+            </div>
+
+            <div className="modal-footer">
+              <button className="modal-cancel" onClick={closeScanner}>Cancel</button>
             </div>
           </div>
         </div>
@@ -1344,7 +1384,7 @@ export default function ViewStockPage() {
             <div className="modal-header">
               <h2>
                 <span className={`scan-mode-badge badge-${transactionMode.toLowerCase()}`}>{transactionMode}</span>
-                {transactionMode === 'IN' ? ' Stock In' : transactionMode === 'OUT' ? ' Stock Out' : transactionMode === 'TRANSFER' ? ' Transfer' : ' Return'}
+                {transactionMode === 'IN' ? ' Stock In' : transactionMode === 'OUT' ? ' Stock Out' : ' Transfer'}
               </h2>
               <button className="modal-close" onClick={() => setTransactionMode(null)} disabled={transactionLoading}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -1354,7 +1394,7 @@ export default function ViewStockPage() {
             {transactionSuccess && <div className="modal-success">{transactionSuccess}</div>}
             <div className="modal-body">
               <div className="form-fields">
-                {(transactionMode === 'IN' || transactionMode === 'RETURN') && (
+                {transactionMode === 'IN' && (
                   <div className="form-group">
                     <label>Destination Location <span className="required">*</span></label>
                     <select value={selectedLocationId} onChange={e => setSelectedLocationId(e.target.value)}>
@@ -1419,7 +1459,7 @@ export default function ViewStockPage() {
                 </div>
                 <div className="invoice-items-list">
                   {transactionItems.length === 0 ? (
-                    <div className="invoice-empty">No items added yet. Use "+ Add Product" above.</div>
+                    <div className="invoice-empty">No items added yet. Use "Add Product" above.</div>
                   ) : (
                     <table className="invoice-items-table">
                       <thead>
@@ -1479,189 +1519,6 @@ export default function ViewStockPage() {
         </div>
       )}
 
-      {/* ══ ADD INVOICE ITEM SUB-MODAL ════════════════════════════════════════ */}
-      {showAddInvoiceItem && (
-        <div className="modal-overlay" style={{ zIndex: 1200 }} onClick={() => setShowAddInvoiceItem(false)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Add to Invoice</h2>
-              <button className="modal-close" onClick={() => setShowAddInvoiceItem(false)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="form-fields">
-                <div className="form-group">
-                  <label>Select Product <span className="required">*</span></label>
-                  <select 
-                    value={invoiceSelectedProductId} 
-                    onChange={e => handleInvoiceProductSelect(e.target.value)}
-                  >
-                    <option value="">— Choose Product —</option>
-                    {products.map(p => (
-                      <option key={p.product_id} value={p.product_id}>
-                        {p.product_name} {p.barcode ? `(${p.barcode})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {invoiceSelectedProductId && invoiceSelectedProductStock.length > 0 && (
-                  <div className="form-group">
-                    <label>Select Batch (FEFO) <span className="required">*</span></label>
-                    <select 
-                      value={invoiceSelectedBatchId} 
-                      onChange={e => handleInvoiceBatchSelect(e.target.value)}
-                    >
-                      <option value="">— Choose Batch —</option>
-                      {invoiceSelectedProductStock.map(batch => (
-                        <option key={batch.stock_id} value={batch.stock_id}>
-                          #{batch.stock_id} | Qty: {batch.quantity} | Exp: {formatDate(batch.expiration_date)} | ₱{batch.unit_cost} | {batch.location?.warehouse_name} {batch.location?.tray ? `Tray: ${batch.location.tray}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {invoiceSelectedProductId && invoiceSelectedProductStock.length === 0 && (
-                  <div className="form-group">
-                    <div className="modal-error" style={{ marginTop: 0 }}>
-                      No available stock for this product.
-                    </div>
-                  </div>
-                )}
-
-                {invoiceSelectedBatchId && (
-                  <div className="form-row-2">
-                    <div className="form-group">
-                      <label>Quantity <span className="required">*</span></label>
-                      <input type="number" min="1" value={addInvoiceQty} onChange={e => setAddInvoiceQty(e.target.value)} autoFocus />
-                    </div>
-                    <div className="form-group">
-                      <label>Price per Unit (₱)</label>
-                      <input type="number" min="0" step="0.01" value={addInvoicePrice} onChange={e => setAddInvoicePrice(e.target.value)} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowAddInvoiceItem(false)}>Cancel</button>
-              <button className="modal-save" onClick={confirmAddInvoiceItem} disabled={!invoiceSelectedBatchId || !addInvoiceQty}>
-                Add to Invoice
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══ INVOICE MODAL ════════════════════════════════════════════════════ */}
-      {showInvoice && !showAddInvoiceItem && (
-        <div className="modal-overlay" onClick={() => { if (!invoiceLoading) setShowInvoice(false); }}>
-          <div className="modal-card transaction-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 18, height: 18, marginRight: 8 }}>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
-                Create Invoice
-              </h2>
-              <button className="modal-close" onClick={() => setShowInvoice(false)} disabled={invoiceLoading}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            {invoiceError && <div className="modal-error">{invoiceError}</div>}
-            {invoiceSuccess && <div className="modal-success">{invoiceSuccess}</div>}
-            <div className="modal-body">
-              <div className="form-fields">
-                <div className="form-row-2">
-                  <div className="form-group">
-                    <label>Customer <span className="required">*</span></label>
-                    <select value={invoiceCustomerId} onChange={e => setInvoiceCustomerId(e.target.value)}>
-                      <option value="">— Select Customer —</option>
-                      {customers.map(c => <option key={c.relation_id} value={c.relation_id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Reference No.</label>
-                    <input placeholder="INV-001" value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="invoice-items-section" style={{ marginTop: 16 }}>
-                <div className="section-label-row">
-                  <label>Invoice Items ({invoiceItems.length})</label>
-                  <button className="add-product-btn" onClick={openAddInvoiceItem}>
-                    + Add Product
-                  </button>
-                </div>
-                <div className="invoice-items-list">
-                  {invoiceItems.length === 0 ? (
-                    <div className="invoice-empty">No items added. Use "+ Add Product" above.</div>
-                  ) : (
-                    <table className="invoice-items-table">
-                      <thead>
-                        <tr>
-                          <th>Product</th>
-                          <th>Batch</th>
-                          <th>Expiry</th>
-                          <th>Qty</th>
-                          <th>Price</th>
-                          <th>Total</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invoiceItems.map(item => (
-                          <tr key={item.stock_id}>
-                            <td>{item.product_name}</td>
-                            <td style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>#{item.stock_id}</td>
-                            <td className="td-date">{formatDate(item.expiration_date)}</td>
-                            <td>
-                              <input type="number" min="1" max={item.availableQuantity} value={item.quantity} 
-                                onChange={e => updateInvoiceItem(item.stock_id, Number(e.target.value), item.price)} 
-                                style={{ width: 65 }} />
-                            </td>
-                            <td>
-                              <input type="number" min="0" step="0.01" value={item.price} 
-                                onChange={e => updateInvoiceItem(item.stock_id, item.quantity, Number(e.target.value))} 
-                                style={{ width: 90 }} />
-                            </td>
-                            <td style={{ fontWeight: 700 }}>₱{item.total.toFixed(2)}</td>
-                            <td>
-                              <button className="remove-item-btn" onClick={() => setInvoiceItems(prev => prev.filter(i => i.stock_id !== item.stock_id))}>×</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr>
-                          <td colSpan={5} style={{ textAlign: 'right', fontWeight: 600, padding: '10px 12px' }}>Grand Total:</td>
-                          <td colSpan={2} style={{ fontWeight: 800, fontSize: '1.05rem', padding: '10px 12px', color: '#1B3C53' }}>₱{invoiceTotal.toFixed(2)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => setShowInvoice(false)} disabled={invoiceLoading}>Cancel</button>
-              <button className="modal-save invoice-save-btn" onClick={createInvoice} disabled={invoiceLoading}>
-                {invoiceLoading ? <><span className="wh-spinner small" /> Creating…</> : <>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
-                  </svg>
-                  Create Invoice & Download PDF
-                </>}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ══ HEADER ════════════════════════════════════════════════════════════ */}
       <div className="wh-header" style={{ marginTop: 16 }}>
         <div>
@@ -1686,19 +1543,9 @@ export default function ViewStockPage() {
               Transfer
             </button>
           )}
-          {permissions.canDoReturn && (
-            <button className="vs-scan-btn scan-return" onClick={() => openTransaction('RETURN')}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5" /><polyline points="12 19 5 12 12 5" /></svg>
-              Return
-            </button>
-          )}
           <button className="vs-scan-btn scan-out" onClick={() => openTransaction('OUT')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
             Stock Out
-          </button>
-          <button className="invoice-btn" onClick={openInvoice}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
-            Create Invoice
           </button>
           <button className="wh-add-btn" onClick={fetchAll}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>

@@ -62,8 +62,13 @@ const EMPTY_FORM: UserFormData = {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-// Roles that require a warehouse assignment
-const WAREHOUSE_ROLE_NAMES = ['Warehouse'];
+// ── Role capability helpers ───────────────────────────────────────────────────
+// Roles that show the Assigned Type dropdown (S1 / Bidding)
+const ROLES_WITH_TYPE = ['Manager', 'Sales', 'Warehouse'];
+// Roles that additionally require a Warehouse assignment
+const ROLES_WITH_WAREHOUSE = ['Warehouse'];
+// Roles with NO assignment fields at all
+const ROLES_WITH_NO_ASSIGNMENT = ['Admin'];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function UserPage() {
@@ -89,6 +94,9 @@ export default function UserPage() {
   const [formError, setFormError]       = useState<string | null>(null);
   const [showFormPass, setShowFormPass] = useState(false);
 
+  // Field-level validation errors
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof UserFormData, string>>>({});
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize]       = useState(10);
@@ -111,7 +119,9 @@ export default function UserPage() {
 
   // ── Derived: selected role name in form ──────────────────────────────────
   const selectedRoleName = roles.find(r => r.role_id === Number(formData.role_id))?.role_name ?? '';
-  const needsWarehouse   = WAREHOUSE_ROLE_NAMES.includes(selectedRoleName);
+  const isAdminRole      = ROLES_WITH_NO_ASSIGNMENT.includes(selectedRoleName);
+  const needsType        = ROLES_WITH_TYPE.includes(selectedRoleName);
+  const needsWarehouse   = ROLES_WITH_WAREHOUSE.includes(selectedRoleName);
 
   // Unique warehouse names for dropdown
   const warehouseOptions: { location_id: number; label: string }[] = [];
@@ -183,11 +193,35 @@ export default function UserPage() {
     setUsers(prev => prev.map(u => u.user_id === user.user_id ? { ...u, status: newStatus } : u));
   };
 
+  // ── Validation helpers ────────────────────────────────────────────────────
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const validateEmail = (val: string): string | undefined => {
+    if (!val.trim()) return undefined; // optional field
+    if (!EMAIL_REGEX.test(val.trim())) return 'Please enter a valid email address.';
+    return undefined;
+  };
+
+  const validatePhone = (val: string): string | undefined => {
+    if (!val.trim()) return undefined; // optional field
+    if (!/^\d+$/.test(val.trim())) return 'Phone number must contain digits only.';
+    return undefined;
+  };
+
+  // Block non-numeric keystrokes in phone field
+  const handlePhoneKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const allowed = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+    if (allowed.includes(e.key)) return;
+    if (e.ctrlKey || e.metaKey) return; // allow copy/paste shortcuts
+    if (!/^\d$/.test(e.key)) e.preventDefault();
+  };
+
   // ── Form handlers ─────────────────────────────────────────────────────────
   const openAddForm = () => {
     setFormData(EMPTY_FORM);
     setEditingId(null);
     setFormError(null);
+    setFieldErrors({});
     setShowFormPass(false);
     setFormMode('add');
   };
@@ -206,47 +240,88 @@ export default function UserPage() {
     });
     setEditingId(u.user_id);
     setFormError(null);
+    setFieldErrors({});
     setShowFormPass(false);
     setFormMode('edit');
   };
 
-  const closeForm = () => { setFormMode(null); setFormError(null); };
+  const closeForm = () => { setFormMode(null); setFormError(null); setFieldErrors({}); };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+
+    // Clear field error on change
+    setFieldErrors(prev => ({ ...prev, [name]: undefined }));
+
     setFormData(prev => {
       const next = { ...prev, [name]: value };
-      // If role changed away from Warehouse, clear warehouse assignment
+
+      // When role changes, reset assignment fields that no longer apply
       if (name === 'role_id') {
         const roleName = roles.find(r => r.role_id === Number(value))?.role_name ?? '';
-        if (!WAREHOUSE_ROLE_NAMES.includes(roleName)) {
+        if (ROLES_WITH_NO_ASSIGNMENT.includes(roleName)) {
+          // Admin: clear both
+          next.assigned_type        = '';
+          next.assigned_location_id = '';
+        } else if (!ROLES_WITH_WAREHOUSE.includes(roleName)) {
+          // Manager / Sales: clear warehouse only
           next.assigned_location_id = '';
         }
       }
+
       return next;
     });
   };
 
+  // Inline validation on blur
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    if (name === 'email') {
+      const err = validateEmail(value);
+      setFieldErrors(prev => ({ ...prev, email: err }));
+    }
+    if (name === 'phone_number') {
+      const err = validatePhone(value);
+      setFieldErrors(prev => ({ ...prev, phone_number: err }));
+    }
+  };
+
   const handleFormSubmit = async () => {
     setFormError(null);
+
+    // Required field checks
     if (!formData.full_name.trim())  { setFormError('Full name is required.'); return; }
     if (!formData.username.trim())   { setFormError('Username is required.'); return; }
     if (formMode === 'add' && !formData.password_hash.trim()) { setFormError('Password is required.'); return; }
     if (!formData.role_id)           { setFormError('Role is required.'); return; }
+
+    // Email format
+    const emailErr = validateEmail(formData.email);
+    if (emailErr) { setFieldErrors(prev => ({ ...prev, email: emailErr })); setFormError('Please fix the errors below.'); return; }
+
+    // Phone digits only
+    const phoneErr = validatePhone(formData.phone_number);
+    if (phoneErr) { setFieldErrors(prev => ({ ...prev, phone_number: phoneErr })); setFormError('Please fix the errors below.'); return; }
+
+    // Role-specific assignment validation
+    if (needsType && !formData.assigned_type) {
+      setFormError(`Assigned Type is required for ${selectedRoleName} role.`); return;
+    }
     if (needsWarehouse && !formData.assigned_location_id) {
       setFormError('Please assign a warehouse for this Warehouse user.'); return;
     }
 
     setFormLoading(true);
     const payload: any = {
-      full_name:            formData.full_name.trim(),
-      username:             formData.username.trim(),
-      email:                formData.email.trim() || null,
-      phone_number:         formData.phone_number.trim() || null,
-      role_id:              Number(formData.role_id),
-      status:               formData.status,
-      assigned_type:        formData.assigned_type || null,
-      assigned_location_id: formData.assigned_location_id ? Number(formData.assigned_location_id) : null,
+      full_name:   formData.full_name.trim(),
+      username:    formData.username.trim(),
+      email:       formData.email.trim() || null,
+      phone_number: formData.phone_number.trim() || null,
+      role_id:     Number(formData.role_id),
+      status:      formData.status,
+      // Admin gets no type/warehouse; others get what's set
+      assigned_type:        isAdminRole ? null : (formData.assigned_type || null),
+      assigned_location_id: needsWarehouse ? Number(formData.assigned_location_id) : null,
     };
     if (formData.password_hash.trim()) payload.password_hash = formData.password_hash.trim();
 
@@ -367,8 +442,20 @@ export default function UserPage() {
                 </div>
                 <div className="form-field">
                   <label className="form-label">Email</label>
-                  <input className="form-input" name="email" type="email" value={formData.email}
-                    onChange={handleFormChange} placeholder="e.g. juan@email.com" />
+                  <input
+                    className={`form-input${fieldErrors.email ? ' input-error' : ''}`}
+                    name="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={handleFormChange}
+                    onBlur={handleBlur}
+                    placeholder="e.g. juan@email.com"
+                    inputMode="email"
+                    autoComplete="email"
+                  />
+                  {fieldErrors.email && (
+                    <span className="field-error-msg">{fieldErrors.email}</span>
+                  )}
                 </div>
               </div>
 
@@ -376,8 +463,20 @@ export default function UserPage() {
               <div className="form-row">
                 <div className="form-field">
                   <label className="form-label">Phone Number</label>
-                  <input className="form-input" name="phone_number" value={formData.phone_number}
-                    onChange={handleFormChange} placeholder="e.g. 09XX-XXX-XXXX" />
+                  <input
+                    className={`form-input${fieldErrors.phone_number ? ' input-error' : ''}`}
+                    name="phone_number"
+                    value={formData.phone_number}
+                    onChange={handleFormChange}
+                    onBlur={handleBlur}
+                    onKeyDown={handlePhoneKeyDown}
+                    placeholder="e.g. 09XXXXXXXXX"
+                    inputMode="numeric"
+                    maxLength={15}
+                  />
+                  {fieldErrors.phone_number && (
+                    <span className="field-error-msg">{fieldErrors.phone_number}</span>
+                  )}
                 </div>
                 <div className="form-field">
                   <label className="form-label">Role <span className="form-required">*</span></label>
@@ -390,56 +489,69 @@ export default function UserPage() {
                 </div>
               </div>
 
-              {/* Row 4: Assigned Type + Assigned Warehouse (conditional) */}
-              <div className="form-row">
-                <div className="form-field">
-                  <label className="form-label">Assigned Type</label>
-                  <select className="form-select" name="assigned_type" value={formData.assigned_type} onChange={handleFormChange}>
-                    <option value="">— None (All Types) —</option>
-                    <option value="S1">S1</option>
-                    <option value="Bidding">Bidding</option>
-                  </select>
-                </div>
-
-                {/* Only show warehouse select if role is Warehouse */}
-                {needsWarehouse ? (
+              {/*
+                ── Role-based assignment rows ─────────────────────────────
+                Admin      → nothing shown
+                Manager / Sales → Assigned Type only
+                Warehouse  → Assigned Type + Assigned Warehouse
+              */}
+              {!isAdminRole && needsType && (
+                <div className="form-row">
+                  {/* Assigned Type */}
                   <div className="form-field">
                     <label className="form-label">
-                      Assigned Warehouse <span className="form-required">*</span>
+                      Assigned Type <span className="form-required">*</span>
                     </label>
-                    <select className="form-select" name="assigned_location_id"
-                      value={formData.assigned_location_id} onChange={handleFormChange}>
-                      <option value="">— Select Warehouse —</option>
-                      {warehouseOptions.map(w => (
-                        <option key={w.location_id} value={w.location_id}>{w.label}</option>
-                      ))}
+                    <select className="form-select" name="assigned_type" value={formData.assigned_type} onChange={handleFormChange}>
+                      <option value="">— Select Type —</option>
+                      <option value="S1">S1</option>
+                      <option value="Bidding">Bidding</option>
                     </select>
-                    <span className="form-hint-text">Required for Warehouse role</span>
+                    <span className="form-hint-text">
+                      {selectedRoleName === 'Warehouse'
+                        ? 'Restricts this user to one stock type in their warehouse'
+                        : 'Restricts this user to one stock type across all warehouses'}
+                    </span>
                   </div>
-                ) : (
-                  <div className="form-field">
-                    <label className="form-label">Status</label>
-                    <select className="form-select" name="status" value={formData.status} onChange={handleFormChange}>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
-                  </div>
-                )}
-              </div>
 
-              {/* Row 5: Status (only when warehouse row is showing) */}
-              {needsWarehouse && (
-                <div className="form-row">
-                  <div className="form-field">
-                    <label className="form-label">Status</label>
-                    <select className="form-select" name="status" value={formData.status} onChange={handleFormChange}>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
-                  </div>
-                  <div className="form-field" /> {/* spacer */}
+                  {/* Assigned Warehouse (Warehouse role only) */}
+                  {needsWarehouse ? (
+                    <div className="form-field">
+                      <label className="form-label">
+                        Assigned Warehouse <span className="form-required">*</span>
+                      </label>
+                      <select className="form-select" name="assigned_location_id"
+                        value={formData.assigned_location_id} onChange={handleFormChange}>
+                        <option value="">— Select Warehouse —</option>
+                        {warehouseOptions.map(w => (
+                          <option key={w.location_id} value={w.location_id}>{w.label}</option>
+                        ))}
+                      </select>
+                      <span className="form-hint-text">Required — limits access to this warehouse only</span>
+                    </div>
+                  ) : (
+                    // Spacer so Status stays on its own row
+                    <div className="form-field" />
+                  )}
                 </div>
               )}
+
+              {/* Status row — always visible */}
+              <div className="form-row">
+                <div className="form-field">
+                  <label className="form-label">Status</label>
+                  <select className="form-select" name="status" value={formData.status} onChange={handleFormChange}>
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                  </select>
+                  {formData.status === 'Inactive' && (
+                    <span className="form-hint-text warning">
+                      ⚠ Inactive users cannot log in to the system.
+                    </span>
+                  )}
+                </div>
+                <div className="form-field" /> {/* spacer */}
+              </div>
             </div>
 
             <div className="modal-footer">
@@ -587,13 +699,13 @@ export default function UserPage() {
                       <td>
                         {u.assigned_type
                           ? <span className="badge badge-amber">{u.assigned_type}</span>
-                          : <span className="td-muted">All</span>}
+                          : <span className="td-muted">{u.role?.role_name === 'Admin' ? '—' : 'All'}</span>}
                       </td>
 
                       <td>
                         {u.assigned_location
                           ? <span className="badge badge-gray">{u.assigned_location.warehouse_name}</span>
-                          : <span className="td-muted">All</span>}
+                          : <span className="td-muted">{u.role?.role_name === 'Admin' || u.role?.role_name === 'Manager' || u.role?.role_name === 'Sales' ? 'All' : '—'}</span>}
                       </td>
 
                       <td>
