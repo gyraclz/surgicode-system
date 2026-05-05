@@ -56,6 +56,7 @@ function WarehousePage() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [addStep, setAddStep]             = useState<AddStep>('choose');
   const [editItem, setEditItem]           = useState<Location | null>(null); // null = add mode
+  const [isFromViewModal, setIsFromViewModal] = useState(false); // Track if adding from view modal
 
   // Form fields
   const [fWarehouse, setFWarehouse]   = useState('');
@@ -172,11 +173,16 @@ function WarehousePage() {
   }, []);
 
   // ── Open Add (step chooser) ─────────────────────────────────────────────
-  const openAdd = () => {
+  const openAdd = (fromViewModal: boolean = false, preSelectedWarehouse?: string) => {
     setEditItem(null);
     setAddStep('choose');
-    setFWarehouse(''); setFAddress(''); setFFloor('');
-    setFShelf(''); setFTray(''); setFStatus('Active');
+    setIsFromViewModal(fromViewModal);
+    setFWarehouse(preSelectedWarehouse || '');
+    setFAddress('');
+    setFFloor('');
+    setFShelf('');
+    setFTray('');
+    setFStatus('Active');
     setFormError('');
     setShowFormModal(true);
   };
@@ -196,6 +202,7 @@ function WarehousePage() {
     else if (item.shelf)  setAddStep('shelf');
     else if (item.floor)  setAddStep('floor');
     else                  setAddStep('warehouse');
+    setIsFromViewModal(false);
     setShowFormModal(true);
   };
 
@@ -297,14 +304,23 @@ function WarehousePage() {
   // ── Add modal form content per step ────────────────────────────────────
   const renderFormBody = () => {
     if (addStep === 'choose') {
+      // If coming from view modal, only show floor, shelf, tray options
+      const options = isFromViewModal
+        ? [
+            { step: 'floor' as AddStep, icon: '📐', label: 'Floor', desc: 'Add a floor to this warehouse' },
+            { step: 'shelf' as AddStep, icon: '📦', label: 'Shelf', desc: 'Add a shelf to an existing floor' },
+            { step: 'tray' as AddStep, icon: '🗂️', label: 'Tray', desc: 'Add a tray to an existing shelf' },
+          ]
+        : [
+            { step: 'warehouse' as AddStep, icon: '🏢', label: 'Warehouse', desc: 'Add a new warehouse' },
+            { step: 'floor' as AddStep, icon: '📐', label: 'Floor', desc: 'Add a floor to an existing warehouse' },
+            { step: 'shelf' as AddStep, icon: '📦', label: 'Shelf', desc: 'Add a shelf to an existing floor' },
+            { step: 'tray' as AddStep, icon: '🗂️', label: 'Tray', desc: 'Add a tray to an existing shelf' },
+          ];
+
       return (
         <div className="step-choose-grid">
-          {[
-            { step: 'warehouse' as AddStep, icon: '🏢', label: 'Warehouse', desc: 'Add a new warehouse' },
-            { step: 'floor'     as AddStep, icon: '📐', label: 'Floor',     desc: 'Add a floor to an existing warehouse' },
-            { step: 'shelf'     as AddStep, icon: '📦', label: 'Shelf',     desc: 'Add a shelf to an existing floor' },
-            { step: 'tray'      as AddStep, icon: '🗂️', label: 'Tray',      desc: 'Add a tray to an existing shelf' },
-          ].map(({ step, icon, label, desc }) => (
+          {options.map(({ step, icon, label, desc }) => (
             <button key={step} className="step-choose-card" onClick={() => setAddStep(step)}>
               <span className="step-choose-icon">{icon}</span>
               <span className="step-choose-label">{label}</span>
@@ -412,7 +428,7 @@ function WarehousePage() {
           <h1 className="wh-title">Warehouse</h1>
           <p className="wh-subtitle">Manage warehouse locations, floors, shelves and trays</p>
         </div>
-        <button className="wh-add-btn" onClick={openAdd}>
+        <button className="wh-add-btn" onClick={() => openAdd(false)}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
             strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -770,7 +786,7 @@ function WarehousePage() {
 
             <div className="modal-footer">
               <button className="modal-cancel" onClick={() => setViewGroup(null)}>Close</button>
-              <button className="modal-save" onClick={() => { setViewGroup(null); openAdd(); }}>
+              <button className="modal-save" onClick={() => { setViewGroup(null); openAdd(true, viewGroup.warehouse_name); }}>
                 + Add to this Warehouse
               </button>
             </div>
